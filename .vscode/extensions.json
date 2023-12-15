@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "jakebecker.elixir-ls",
+        "pantajoe.vscode-elixir-credo",
+        "samuel-pordeus.elixir-jump-to-test",
+        "alessandrosangalli.mob-vscode-gui"
+    ]
+}

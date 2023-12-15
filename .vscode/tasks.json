@@ -1,0 +1,29 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Mix Test Interactive",
+			"type": "shell",
+			"command": "mix test.interactive --stale",
+			"isBackground": true,
+			"problemMatcher": [],
+		},
+		{
+			"label": "Run Mix Check",
+			"type": "shell",
+			"command": "mix check",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"presentation": {
+				"reveal": "always",
+				"focus": true,
+				"panel": "dedicated",
+				"clear": true
+			}
+		},
+	]
+}
