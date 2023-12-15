@@ -25,7 +25,7 @@ defmodule GptAgent do
   @doc """
   Initializes the GPT Agent
   """
-  @spec init(any()) :: {:ok, any()}
+  @spec init(map()) :: {:ok, t(), {:continue, :create_thread}}
   def init(init_arg) do
     init_arg
     |> Enum.into(%{pid: self()})
