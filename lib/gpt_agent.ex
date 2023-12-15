@@ -1,18 +1,15 @@
 defmodule GptAgent do
   @moduledoc """
-  Documentation for `GptAgent`.
+  Provides a GPT conversation agent
   """
 
-  @doc """
-  Hello world.
+  use GenServer
 
-  ## Examples
+  def init(init_arg) do
+    {:ok, init_arg}
+  end
 
-      iex> GptAgent.hello()
-      :world
-
-  """
-  def hello do
-    :world
+  def start_link do
+    GenServer.start_link(__MODULE__, nil)
   end
 end
