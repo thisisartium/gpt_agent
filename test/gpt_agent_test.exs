@@ -5,6 +5,7 @@ defmodule GptAgentTest do
   doctest GptAgent
 
   alias GptAgent.Events.{ThreadCreated, UserMessageAdded}
+  alias GptAgent.Values.NonblankString
 
   setup _context do
     bypass = Bypass.open()
@@ -34,9 +35,9 @@ defmodule GptAgentTest do
     {:ok, bypass: bypass, thread_id: thread_id}
   end
 
-  describe "start_link/1" do
+  describe "start_link/2" do
     test "starts the agent" do
-      {:ok, pid} = GptAgent.start_link(self())
+      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
       assert Process.alive?(pid)
     end
 
@@ -55,21 +56,21 @@ defmodule GptAgentTest do
         )
       end)
 
-      {:ok, pid} = GptAgent.start_link(self())
+      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
 
       assert_receive {GptAgent, ^pid, :ready}, 5_000
     end
 
     test "sends the ThreadCreated event to the callback handler", %{thread_id: thread_id} do
-      {:ok, pid} = GptAgent.start_link(self())
+      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
 
       assert_receive {GptAgent, ^pid, %ThreadCreated{id: ^thread_id}}, 5_000
     end
   end
 
-  describe "start_link/2" do
+  describe "start_link/3" do
     test "starts the agent" do
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
+      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word(), Faker.Lorem.word())
       assert Process.alive?(pid)
     end
 
@@ -78,13 +79,13 @@ defmodule GptAgentTest do
         raise "Should not have called the OpenAI API to create a thread"
       end)
 
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
+      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word(), Faker.Lorem.word())
 
       assert_receive {GptAgent, ^pid, :ready}, 5_000
     end
 
     test "does not send the ThreadCreated event to the callback handler" do
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
+      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word(), Faker.Lorem.word())
 
       refute_receive {GptAgent, ^pid, %ThreadCreated{}}, 100
     end
@@ -95,7 +96,7 @@ defmodule GptAgentTest do
       bypass: bypass,
       thread_id: thread_id
     } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word(), thread_id)
 
       user_message_id = Faker.Lorem.word()
       message_content = Faker.Lorem.paragraph()
@@ -134,9 +135,11 @@ defmodule GptAgentTest do
                       %UserMessageAdded{
                         id: ^user_message_id,
                         thread_id: ^thread_id,
-                        content: ^message_content
+                        content: %NonblankString{} = content
                       }},
                      5_000
+
+      assert content.value == message_content
     end
   end
 end

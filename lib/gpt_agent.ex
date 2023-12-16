@@ -60,7 +60,7 @@ defmodule GptAgent do
     |> send_callback(%UserMessageAdded{
       id: id,
       thread_id: state.thread_id,
-      content: message.value
+      content: message
     })
     |> noreply()
   end
@@ -68,8 +68,9 @@ defmodule GptAgent do
   @doc """
   Starts the GPT Agent
   """
-  @spec start_link(pid(), binary() | nil) :: {:ok, pid()} | {:error, reason :: term()}
-  def start_link(callback_handler, thread_id \\ nil) when is_pid(callback_handler) do
+  @spec start_link(pid(), binary(), binary() | nil) :: {:ok, pid()} | {:error, reason :: term()}
+  def start_link(callback_handler, _assistant_id, thread_id \\ nil)
+      when is_pid(callback_handler) do
     GenServer.start_link(__MODULE__, callback_handler: callback_handler, thread_id: thread_id)
   end
 
