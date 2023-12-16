@@ -4,7 +4,7 @@ defmodule GptAgentTest do
   use ExUnit.Case
   doctest GptAgent
 
-  alias GptAgent.Events.{ThreadCreated, UserMessageAdded}
+  alias GptAgent.Events.{RunStarted, ThreadCreated, UserMessageAdded}
   alias GptAgent.Values.NonblankString
 
   setup _context do
@@ -16,7 +16,7 @@ defmodule GptAgentTest do
       openai_organization_id: "test"
     )
 
-    thread_id = Faker.Lorem.word()
+    thread_id = UUID.uuid4()
 
     Bypass.stub(bypass, "POST", "/v1/threads", fn conn ->
       conn
@@ -32,12 +32,40 @@ defmodule GptAgentTest do
       )
     end)
 
+    Bypass.stub(bypass, "POST", "/v1/threads/#{thread_id}/messages", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        201,
+        Jason.encode!(%{
+          "id" => UUID.uuid4(),
+          "object" => "thread.message",
+          "created_at" => "1699012949",
+          "thread_id" => thread_id,
+          "role" => "user",
+          "content" => [
+            %{
+              "type" => "text",
+              "text" => %{
+                "value" => "Hello",
+                "annotations" => []
+              }
+            }
+          ],
+          "file_ids" => [],
+          "assistant_id" => nil,
+          "run_id" => nil,
+          "metadata" => %{}
+        })
+      )
+    end)
+
     {:ok, bypass: bypass, thread_id: thread_id}
   end
 
   describe "start_link/2" do
     test "starts the agent" do
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
+      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4())
       assert Process.alive?(pid)
     end
 
@@ -48,7 +76,7 @@ defmodule GptAgentTest do
         |> Plug.Conn.resp(
           201,
           Jason.encode!(%{
-            "id" => Faker.Lorem.word(),
+            "id" => UUID.uuid4(),
             "object" => "thread",
             "created_at" => "1699012949",
             "metadata" => %{}
@@ -56,13 +84,13 @@ defmodule GptAgentTest do
         )
       end)
 
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
+      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4())
 
       assert_receive {GptAgent, ^pid, :ready}, 5_000
     end
 
     test "sends the ThreadCreated event to the callback handler", %{thread_id: thread_id} do
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
+      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4())
 
       assert_receive {GptAgent, ^pid, %ThreadCreated{id: ^thread_id}}, 5_000
     end
@@ -70,7 +98,7 @@ defmodule GptAgentTest do
 
   describe "start_link/3" do
     test "starts the agent" do
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word(), Faker.Lorem.word())
+      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4(), UUID.uuid4())
       assert Process.alive?(pid)
     end
 
@@ -79,13 +107,13 @@ defmodule GptAgentTest do
         raise "Should not have called the OpenAI API to create a thread"
       end)
 
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word(), Faker.Lorem.word())
+      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4(), UUID.uuid4())
 
       assert_receive {GptAgent, ^pid, :ready}, 5_000
     end
 
     test "does not send the ThreadCreated event to the callback handler" do
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word(), Faker.Lorem.word())
+      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4(), UUID.uuid4())
 
       refute_receive {GptAgent, ^pid, %ThreadCreated{}}, 100
     end
@@ -96,9 +124,9 @@ defmodule GptAgentTest do
       bypass: bypass,
       thread_id: thread_id
     } do
-      {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word(), thread_id)
+      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4(), thread_id)
 
-      user_message_id = Faker.Lorem.word()
+      user_message_id = UUID.uuid4()
       message_content = Faker.Lorem.paragraph()
 
       Bypass.expect_once(bypass, "POST", "/v1/threads/#{thread_id}/messages", fn conn ->
@@ -140,6 +168,45 @@ defmodule GptAgentTest do
                      5_000
 
       assert content.value == message_content
+    end
+
+    test "creates a run against the thread and the assistant via the OpenAI API", %{
+      bypass: bypass,
+      thread_id: thread_id
+    } do
+      assistant_id = UUID.uuid4()
+      {:ok, pid} = GptAgent.start_link(self(), assistant_id, thread_id)
+
+      Bypass.expect_once(bypass, "POST", "/v1/threads/#{thread_id}/runs", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        %{"assistant_id" => ^assistant_id} = Jason.decode!(body)
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          201,
+          Jason.encode!(%{
+            "id" => UUID.uuid4(),
+            "object" => "thread.run",
+            "created_at" => "1699012949",
+            "thread_id" => thread_id,
+            "assistant_id" => UUID.uuid4(),
+            "metadata" => %{}
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, "Hello")
+
+      assert_receive {GptAgent, ^pid,
+                      %RunStarted{
+                        id: run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id
+                      }},
+                     5_000
+
+      assert is_binary(run_id)
     end
   end
 end

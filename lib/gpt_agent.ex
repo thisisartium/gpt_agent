@@ -6,17 +6,19 @@ defmodule GptAgent do
   use GenServer
   use TypedStruct
 
-  alias GptAgent.Events.{ThreadCreated, UserMessageAdded}
+  alias GptAgent.Events.{RunStarted, ThreadCreated, UserMessageAdded}
   alias GptAgent.Values.NonblankString
 
   typedstruct do
     field :pid, pid(), enforce: true
     field :callback_handler, pid(), enforce: true
+    field :assistant_id, binary(), enforce: true
     field :thread_id, binary() | nil
   end
 
   defp continue(state, continue_arg), do: {:ok, state, {:continue, continue_arg}}
   defp noreply(state), do: {:noreply, state}
+  defp noreply(state, next), do: {:noreply, state, next}
 
   defp send_callback(state, callback) do
     send(state.callback_handler, {__MODULE__, state.pid, callback})
@@ -50,6 +52,24 @@ defmodule GptAgent do
     |> noreply()
   end
 
+  def handle_continue(:run, state) do
+    {:ok, %{body: %{"id" => id}}} =
+      OpenAiClient.post("/v1/threads/#{state.thread_id}/runs",
+        json: %{
+          "assistant_id" => state.assistant_id,
+          "thread_id" => state.thread_id
+        }
+      )
+
+    state
+    |> send_callback(%RunStarted{
+      id: id,
+      thread_id: state.thread_id,
+      assistant_id: state.assistant_id
+    })
+    |> noreply()
+  end
+
   def handle_cast({:add_user_message, message}, state) do
     {:ok, message} = NonblankString.new(message)
 
@@ -62,16 +82,20 @@ defmodule GptAgent do
       thread_id: state.thread_id,
       content: message
     })
-    |> noreply()
+    |> noreply({:continue, :run})
   end
 
   @doc """
   Starts the GPT Agent
   """
   @spec start_link(pid(), binary(), binary() | nil) :: {:ok, pid()} | {:error, reason :: term()}
-  def start_link(callback_handler, _assistant_id, thread_id \\ nil)
+  def start_link(callback_handler, assistant_id, thread_id \\ nil)
       when is_pid(callback_handler) do
-    GenServer.start_link(__MODULE__, callback_handler: callback_handler, thread_id: thread_id)
+    GenServer.start_link(__MODULE__,
+      callback_handler: callback_handler,
+      assistant_id: assistant_id,
+      thread_id: thread_id
+    )
   end
 
   def add_user_message(pid, message) do
