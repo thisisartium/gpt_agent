@@ -4,7 +4,7 @@ defmodule GptAgentTest do
   use ExUnit.Case
   doctest GptAgent
 
-  alias GptAgent.Events.ThreadCreated
+  alias GptAgent.Events.{ThreadCreated, UserMessageAdded}
 
   setup _context do
     bypass = Bypass.open()
@@ -87,6 +87,56 @@ defmodule GptAgentTest do
       {:ok, pid} = GptAgent.start_link(self(), Faker.Lorem.word())
 
       refute_receive {GptAgent, ^pid, %ThreadCreated{}}, 100
+    end
+  end
+
+  describe "add_user_message/2" do
+    test "adds the user message to the agent's thread via the OpenAI API", %{
+      bypass: bypass,
+      thread_id: thread_id
+    } do
+      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+
+      user_message_id = Faker.Lorem.word()
+      message_content = Faker.Lorem.paragraph()
+
+      Bypass.expect_once(bypass, "POST", "/v1/threads/#{thread_id}/messages", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          201,
+          Jason.encode!(%{
+            "id" => user_message_id,
+            "object" => "thread.message",
+            "created_at" => "1699012949",
+            "thread_id" => thread_id,
+            "role" => "user",
+            "content" => [
+              %{
+                "type" => "text",
+                "text" => %{
+                  "value" => message_content,
+                  "annotations" => []
+                }
+              }
+            ],
+            "file_ids" => [],
+            "assistant_id" => nil,
+            "run_id" => nil,
+            "metadata" => %{}
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, message_content)
+
+      assert_receive {GptAgent, ^pid,
+                      %UserMessageAdded{
+                        id: ^user_message_id,
+                        thread_id: ^thread_id,
+                        content: ^message_content
+                      }},
+                     5_000
     end
   end
 end

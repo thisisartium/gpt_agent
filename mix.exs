@@ -53,6 +53,7 @@ defmodule GptAgent.MixProject do
       {:mix_test_interactive, "~> 1.2", only: :dev, runtime: false},
       {:mox, "~> 1.1", only: :test},
       {:open_ai_client, "~> 1.2"},
+      {:stream_data, "~> 0.6"},
       {:sobelow, "~> 0.12", only: [:dev, :test], runtime: false},
       {:typed_struct, "~> 0.3"},
       {:uuid, "~> 1.1"}

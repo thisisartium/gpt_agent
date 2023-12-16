@@ -6,7 +6,8 @@ defmodule GptAgent do
   use GenServer
   use TypedStruct
 
-  alias GptAgent.Events.ThreadCreated
+  alias GptAgent.Events.{ThreadCreated, UserMessageAdded}
+  alias GptAgent.Values.NonblankString
 
   typedstruct do
     field :pid, pid(), enforce: true
@@ -34,7 +35,7 @@ defmodule GptAgent do
   end
 
   def handle_continue(:create_thread, %__MODULE__{thread_id: nil} = state) do
-    {:ok, %{body: %{"id" => thread_id}}} = OpenAiClient.post("/v1/threads", json: %{})
+    {:ok, %{body: %{"id" => thread_id}}} = OpenAiClient.post("/v1/threads", json: "")
 
     state
     |> Map.put(:thread_id, thread_id)
@@ -49,11 +50,30 @@ defmodule GptAgent do
     |> noreply()
   end
 
+  def handle_cast({:add_user_message, message}, state) do
+    {:ok, message} = NonblankString.new(message)
+
+    {:ok, %{body: %{"id" => id}}} =
+      OpenAiClient.post("/v1/threads/#{state.thread_id}/messages", json: message)
+
+    state
+    |> send_callback(%UserMessageAdded{
+      id: id,
+      thread_id: state.thread_id,
+      content: message.value
+    })
+    |> noreply()
+  end
+
   @doc """
   Starts the GPT Agent
   """
   @spec start_link(pid(), binary() | nil) :: {:ok, pid()} | {:error, reason :: term()}
   def start_link(callback_handler, thread_id \\ nil) when is_pid(callback_handler) do
     GenServer.start_link(__MODULE__, callback_handler: callback_handler, thread_id: thread_id)
+  end
+
+  def add_user_message(pid, message) do
+    GenServer.cast(pid, {:add_user_message, message})
   end
 end
