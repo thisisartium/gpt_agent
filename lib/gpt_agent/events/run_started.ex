@@ -1,4 +1,7 @@
 defmodule GptAgent.Events.RunStarted do
+  @moduledoc """
+  An OpenAI Assistants run was started
+  """
   use TypedStruct
 
   typedstruct do
