@@ -254,7 +254,7 @@ defmodule GptAgentTest do
       assert is_binary(run_id)
     end
 
-    test "when the run is finished, sends the RunFinished event to the callback handler", %{
+    test "when the run is completed, sends the RunCompleted event to the callback handler", %{
       bypass: bypass,
       assistant_id: assistant_id,
       thread_id: thread_id,
