@@ -17,7 +17,7 @@ defmodule GptAgent do
     field :running?, boolean(), default: false
   end
 
-  defp continue(state, continue_arg), do: {:ok, state, {:continue, continue_arg}}
+  defp ok(state, next), do: {:ok, state, next}
   defp noreply(state), do: {:noreply, state}
   defp noreply(state, next), do: {:noreply, state, next}
 
@@ -34,7 +34,7 @@ defmodule GptAgent do
     init_arg
     |> Enum.into(%{pid: self()})
     |> then(&struct!(__MODULE__, &1))
-    |> continue(:create_thread)
+    |> ok({:continue, :create_thread})
   end
 
   def handle_continue(:create_thread, %__MODULE__{thread_id: nil} = state) do
