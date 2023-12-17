@@ -6,7 +6,7 @@ defmodule GptAgent do
   use GenServer
   use TypedStruct
 
-  alias GptAgent.Events.{RunStarted, ThreadCreated, UserMessageAdded}
+  alias GptAgent.Events.{RunCompleted, RunStarted, ThreadCreated, UserMessageAdded}
   alias GptAgent.Values.NonblankString
 
   typedstruct do
@@ -14,6 +14,7 @@ defmodule GptAgent do
     field :callback_handler, pid(), enforce: true
     field :assistant_id, binary(), enforce: true
     field :thread_id, binary() | nil
+    field :running?, boolean(), default: false
   end
 
   defp continue(state, continue_arg), do: {:ok, state, {:continue, continue_arg}}
@@ -61,7 +62,10 @@ defmodule GptAgent do
         }
       )
 
+    Process.send_after(self(), {:check_run_status, id}, heartbeat_interval_ms())
+
     state
+    |> Map.put(:running?, true)
     |> send_callback(%RunStarted{
       id: id,
       thread_id: state.thread_id,
@@ -69,6 +73,8 @@ defmodule GptAgent do
     })
     |> noreply()
   end
+
+  defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
 
   def handle_cast({:add_user_message, message}, state) do
     {:ok, message} = NonblankString.new(message)
@@ -83,6 +89,24 @@ defmodule GptAgent do
       content: message
     })
     |> noreply({:continue, :run})
+  end
+
+  def handle_info({:check_run_status, id}, state) do
+    {:ok, %{body: %{"status" => status}}} =
+      OpenAiClient.get("/v1/threads/#{state.thread_id}/runs/#{id}", [])
+
+    if status == "completed" do
+      state
+      |> send_callback(%RunCompleted{
+        id: id,
+        thread_id: state.thread_id,
+        assistant_id: state.assistant_id
+      })
+      |> noreply()
+    else
+      Process.send_after(self(), {:check_run_status, id}, heartbeat_interval_ms())
+      noreply(state)
+    end
   end
 
   @doc """

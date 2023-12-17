@@ -4,7 +4,7 @@ defmodule GptAgentTest do
   use ExUnit.Case
   doctest GptAgent
 
-  alias GptAgent.Events.{RunStarted, ThreadCreated, UserMessageAdded}
+  alias GptAgent.Events.{RunCompleted, RunStarted, ThreadCreated, UserMessageAdded}
   alias GptAgent.Values.NonblankString
 
   setup _context do
@@ -16,7 +16,9 @@ defmodule GptAgentTest do
       openai_organization_id: "test"
     )
 
+    assistant_id = UUID.uuid4()
     thread_id = UUID.uuid4()
+    run_id = UUID.uuid4()
 
     Bypass.stub(bypass, "POST", "/v1/threads", fn conn ->
       conn
@@ -60,7 +62,50 @@ defmodule GptAgentTest do
       )
     end)
 
-    {:ok, bypass: bypass, thread_id: thread_id}
+    Bypass.stub(bypass, "POST", "/v1/threads/#{thread_id}/runs", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        201,
+        Jason.encode!(%{
+          "id" => run_id,
+          "object" => "thread.run",
+          "created_at" => "1699012949",
+          "thread_id" => thread_id,
+          "assistant_id" => assistant_id,
+          "metadata" => %{}
+        })
+      )
+    end)
+
+    Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        200,
+        Jason.encode!(%{
+          "id" => run_id,
+          "object" => "thread.run",
+          "created_at" => 1_699_075_072,
+          "assistant_id" => assistant_id,
+          "thread_id" => thread_id,
+          "status" => "completed",
+          "started_at" => 1_699_075_072,
+          "expires_at" => nil,
+          "cancelled_at" => nil,
+          "failed_at" => nil,
+          "completed_at" => 1_699_075_073,
+          "last_error" => nil,
+          "model" => "gpt-4-1106-preview",
+          "instructions" => nil,
+          "tools" => [],
+          "file_ids" => [],
+          "metadata" => %{}
+        })
+      )
+    end)
+
+    {:ok, bypass: bypass, assistant_id: assistant_id, thread_id: thread_id, run_id: run_id}
   end
 
   describe "start_link/2" do
@@ -190,7 +235,7 @@ defmodule GptAgentTest do
             "object" => "thread.run",
             "created_at" => "1699012949",
             "thread_id" => thread_id,
-            "assistant_id" => UUID.uuid4(),
+            "assistant_id" => assistant_id,
             "metadata" => %{}
           })
         )
@@ -207,6 +252,52 @@ defmodule GptAgentTest do
                      5_000
 
       assert is_binary(run_id)
+    end
+
+    test "when the run is finished, sends the RunFinished event to the callback handler", %{
+      bypass: bypass,
+      assistant_id: assistant_id,
+      thread_id: thread_id,
+      run_id: run_id
+    } do
+      {:ok, pid} = GptAgent.start_link(self(), assistant_id, thread_id)
+
+      Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "id" => run_id,
+            "object" => "thread.run",
+            "created_at" => 1_699_075_072,
+            "assistant_id" => assistant_id,
+            "thread_id" => thread_id,
+            "status" => "completed",
+            "started_at" => 1_699_075_072,
+            "expires_at" => nil,
+            "cancelled_at" => nil,
+            "failed_at" => nil,
+            "completed_at" => 1_699_075_073,
+            "last_error" => nil,
+            "model" => "gpt-4-1106-preview",
+            "instructions" => nil,
+            "tools" => [],
+            "file_ids" => [],
+            "metadata" => %{}
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, "Hello")
+
+      assert_receive {GptAgent, ^pid,
+                      %RunCompleted{
+                        id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id
+                      }},
+                     5_000
     end
   end
 end
