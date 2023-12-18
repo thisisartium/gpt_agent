@@ -57,8 +57,7 @@ defmodule GptAgent do
     {:ok, %{body: %{"id" => id}}} =
       OpenAiClient.post("/v1/threads/#{state.thread_id}/runs",
         json: %{
-          "assistant_id" => state.assistant_id,
-          "thread_id" => state.thread_id
+          "assistant_id" => state.assistant_id
         }
       )
 
