@@ -6,7 +6,14 @@ defmodule GptAgent do
   use GenServer
   use TypedStruct
 
-  alias GptAgent.Events.{RunCompleted, RunStarted, ThreadCreated, UserMessageAdded}
+  alias GptAgent.Events.{
+    RunCompleted,
+    RunStarted,
+    ThreadCreated,
+    ToolCallRequested,
+    UserMessageAdded
+  }
+
   alias GptAgent.Values.NonblankString
 
   typedstruct do
@@ -91,21 +98,41 @@ defmodule GptAgent do
   end
 
   def handle_info({:check_run_status, id}, state) do
-    {:ok, %{body: %{"status" => status}}} =
+    {:ok, %{body: %{"status" => status} = response}} =
       OpenAiClient.get("/v1/threads/#{state.thread_id}/runs/#{id}", [])
 
-    if status == "completed" do
-      state
-      |> send_callback(%RunCompleted{
-        id: id,
+    handle_run_status(status, id, response, state)
+  end
+
+  defp handle_run_status("completed", id, _response, state) do
+    state
+    |> send_callback(%RunCompleted{
+      id: id,
+      thread_id: state.thread_id,
+      assistant_id: state.assistant_id
+    })
+    |> noreply()
+  end
+
+  defp handle_run_status("requires_action", id, response, state) do
+    %{"required_action" => %{"submit_tool_outputs" => %{"tool_calls" => tool_calls}}} = response
+
+    tool_calls
+    |> Enum.reduce(state, fn tool_call, state ->
+      send_callback(state, %ToolCallRequested{
+        id: tool_call["id"],
         thread_id: state.thread_id,
-        assistant_id: state.assistant_id
+        run_id: id,
+        name: tool_call["function"]["name"],
+        arguments: Jason.decode!(tool_call["function"]["arguments"])
       })
-      |> noreply()
-    else
-      Process.send_after(self(), {:check_run_status, id}, heartbeat_interval_ms())
-      noreply(state)
-    end
+    end)
+    |> noreply()
+  end
+
+  defp handle_run_status(_status, id, _response, state) do
+    Process.send_after(self(), {:check_run_status, id}, heartbeat_interval_ms())
+    noreply(state)
   end
 
   @doc """
