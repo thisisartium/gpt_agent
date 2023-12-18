@@ -19,7 +19,7 @@ defmodule GptAgent do
 
   defp ok(state, next), do: {:ok, state, next}
   defp noreply(state), do: {:noreply, state}
-  defp noreply(state, next), do: {:noreply, state, next}
+  defp reply(state, reply, next), do: {:reply, reply, state, next}
 
   defp send_callback(state, callback) do
     send(state.callback_handler, {__MODULE__, state.pid, callback})
@@ -75,7 +75,7 @@ defmodule GptAgent do
 
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
 
-  def handle_cast({:add_user_message, message}, state) do
+  def handle_call({:add_user_message, message}, _caller, state) do
     {:ok, message} = NonblankString.new(message)
 
     {:ok, %{body: %{"id" => id}}} =
@@ -87,7 +87,7 @@ defmodule GptAgent do
       thread_id: state.thread_id,
       content: message
     })
-    |> noreply({:continue, :run})
+    |> reply(:ok, {:continue, :run})
   end
 
   def handle_info({:check_run_status, id}, state) do
@@ -122,6 +122,6 @@ defmodule GptAgent do
   end
 
   def add_user_message(pid, message) do
-    GenServer.cast(pid, {:add_user_message, message})
+    GenServer.call(pid, {:add_user_message, message})
   end
 end
