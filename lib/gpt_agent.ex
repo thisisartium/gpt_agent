@@ -111,6 +111,7 @@ defmodule GptAgent do
 
   defp handle_run_status("completed", id, _response, state) do
     state
+    |> Map.put(:running?, false)
     |> send_callback(%RunCompleted{
       id: id,
       thread_id: state.thread_id,

@@ -450,5 +450,25 @@ defmodule GptAgentTest do
       assert {:error, :run_in_progress} =
                GptAgent.add_user_message(pid, Faker.Lorem.sentence())
     end
+
+    test "allow adding additional messages if the run is complete", %{
+      assistant_id: assistant_id,
+      thread_id: thread_id,
+      run_id: run_id
+    } do
+      {:ok, pid} = GptAgent.start_link(self(), assistant_id, thread_id)
+
+      :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+
+      assert_receive {GptAgent, ^pid,
+                      %RunCompleted{
+                        id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id
+                      }},
+                     5_000
+
+      assert :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+    end
   end
 end
