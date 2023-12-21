@@ -26,6 +26,7 @@ defmodule GptAgent do
 
   defp ok(state, next), do: {:ok, state, next}
   defp noreply(state), do: {:noreply, state}
+  defp reply(state, reply), do: {:reply, reply, state}
   defp reply(state, reply, next), do: {:reply, reply, state, next}
 
   defp send_callback(state, callback) do
@@ -81,6 +82,10 @@ defmodule GptAgent do
   end
 
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
+
+  def handle_call({:add_user_message, _message}, _caller, %__MODULE__{running?: true} = state) do
+    reply(state, {:error, :run_in_progress})
+  end
 
   def handle_call({:add_user_message, message}, _caller, state) do
     {:ok, message} = NonblankString.new(message)

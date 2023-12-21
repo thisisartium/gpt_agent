@@ -388,5 +388,67 @@ defmodule GptAgentTest do
                       }},
                      5_000
     end
+
+    test "returns {:error, :pending_tool_calls} if the agent is waiting on tool calls to be submitted",
+         %{
+           bypass: bypass,
+           assistant_id: assistant_id,
+           thread_id: thread_id,
+           run_id: run_id
+         } do
+      {:ok, pid} = GptAgent.start_link(self(), assistant_id, thread_id)
+
+      Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "id" => run_id,
+            "object" => "thread.run",
+            "created_at" => 1_699_075_072,
+            "assistant_id" => assistant_id,
+            "thread_id" => thread_id,
+            "status" => "requires_action",
+            "required_action" => %{
+              "type" => "submit_tool_outputs",
+              "submit_tool_outputs" => %{
+                "tool_calls" => [
+                  %{
+                    "id" => UUID.uuid4(),
+                    "type" => "function",
+                    "function" => %{"name" => "tool_1", "arguments" => ~s({"foo":"bar","baz":1})}
+                  },
+                  %{
+                    "id" => UUID.uuid4(),
+                    "type" => "function",
+                    "function" => %{
+                      "name" => "tool_2",
+                      "arguments" => ~s({"ham":"spam","wham":2})
+                    }
+                  }
+                ]
+              }
+            },
+            "started_at" => 1_699_075_072,
+            "expires_at" => nil,
+            "cancelled_at" => nil,
+            "failed_at" => nil,
+            "completed_at" => 1_699_075_073,
+            "last_error" => nil,
+            "model" => "gpt-4-1106-preview",
+            "instructions" => nil,
+            "tools" => [],
+            "file_ids" => [],
+            "metadata" => %{}
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+
+      assert {:error, :run_in_progress} =
+               GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+    end
   end
 end
