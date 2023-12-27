@@ -10,6 +10,7 @@ defmodule GptAgent do
     RunCompleted,
     RunStarted,
     ThreadCreated,
+    ToolCallOutputRecorded,
     ToolCallRequested,
     UserMessageAdded
   }
@@ -22,6 +23,9 @@ defmodule GptAgent do
     field :assistant_id, binary(), enforce: true
     field :thread_id, binary() | nil
     field :running?, boolean(), default: false
+    field :run_id, binary() | nil
+    field :tool_calls, [ToolCallRequested.t()], default: []
+    field :tool_outputs, [ToolCallOutputRecorded.t()], default: []
   end
 
   defp ok(state, next), do: {:ok, state, next}
@@ -73,6 +77,7 @@ defmodule GptAgent do
 
     state
     |> Map.put(:running?, true)
+    |> Map.put(:run_id, id)
     |> send_callback(%RunStarted{
       id: id,
       thread_id: state.thread_id,
@@ -102,6 +107,55 @@ defmodule GptAgent do
     |> reply(:ok, {:continue, :run})
   end
 
+  def handle_call(
+        {:submit_tool_output, _tool_call_id, _tool_output},
+        _caller,
+        %__MODULE__{running?: false} = state
+      ) do
+    reply(state, {:error, :run_not_in_progress})
+  end
+
+  def handle_call({:submit_tool_output, tool_call_id, tool_output}, _caller, state) do
+    case Enum.find_index(state.tool_calls, fn %ToolCallRequested{id: id} -> id == tool_call_id end) do
+      nil ->
+        reply(state, {:error, :invalid_tool_call_id})
+
+      index ->
+        {tool_call, tool_calls} = List.pop_at(state.tool_calls, index)
+
+        tool_output = %ToolCallOutputRecorded{
+          id: tool_call_id,
+          thread_id: state.thread_id,
+          run_id: tool_call.run_id,
+          name: tool_call.name,
+          output: Jason.encode!(tool_output)
+        }
+
+        tool_outputs = [tool_output | state.tool_outputs]
+
+        state
+        |> send_callback(tool_output)
+        |> Map.put(:tool_calls, tool_calls)
+        |> Map.put(:tool_outputs, tool_outputs)
+        |> possibly_send_outputs_to_openai()
+        |> reply(:ok)
+    end
+  end
+
+  defp possibly_send_outputs_to_openai(
+         %{running?: true, tool_calls: [], tool_outputs: [_ | _]} = state
+       ) do
+    OpenAiClient.post("/v1/threads/#{state.thread_id}/runs/#{state.run_id}/submit_tool_outputs",
+      json: %{tool_outputs: state.tool_outputs}
+    )
+
+    Process.send_after(self(), {:check_run_status, state.run_id}, heartbeat_interval_ms())
+
+    %{state | tool_outputs: []}
+  end
+
+  defp possibly_send_outputs_to_openai(state), do: state
+
   def handle_info({:check_run_status, id}, state) do
     {:ok, %{body: %{"status" => status} = response}} =
       OpenAiClient.get("/v1/threads/#{state.thread_id}/runs/#{id}", [])
@@ -125,13 +179,17 @@ defmodule GptAgent do
 
     tool_calls
     |> Enum.reduce(state, fn tool_call, state ->
-      send_callback(state, %ToolCallRequested{
+      tool_call = %ToolCallRequested{
         id: tool_call["id"],
         thread_id: state.thread_id,
         run_id: id,
         name: tool_call["function"]["name"],
         arguments: Jason.decode!(tool_call["function"]["arguments"])
-      })
+      }
+
+      state
+      |> Map.put(:tool_calls, [tool_call | state.tool_calls])
+      |> send_callback(tool_call)
     end)
     |> noreply()
   end
@@ -156,5 +214,9 @@ defmodule GptAgent do
 
   def add_user_message(pid, message) do
     GenServer.call(pid, {:add_user_message, message})
+  end
+
+  def submit_tool_output(pid, tool_call_id, tool_output) do
+    GenServer.call(pid, {:submit_tool_output, tool_call_id, tool_output})
   end
 end

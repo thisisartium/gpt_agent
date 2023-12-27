@@ -471,4 +471,325 @@ defmodule GptAgentTest do
       assert :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
     end
   end
+
+  describe "submit_tool_output/3" do
+    test "returns {:error, :not_running} if there is no run in progress", %{
+      assistant_id: assistant_id,
+      thread_id: thread_id
+    } do
+      {:ok, pid} = GptAgent.start_link(self(), assistant_id, thread_id)
+
+      assert {:error, :run_not_in_progress} =
+               GptAgent.submit_tool_output(pid, UUID.uuid4(), %{})
+    end
+
+    test "returns {:error, :invalid_tool_call_id} if the tool call ID is not one of the outstanding tool calls",
+         %{
+           bypass: bypass,
+           assistant_id: assistant_id,
+           thread_id: thread_id,
+           run_id: run_id
+         } do
+      {:ok, pid} = GptAgent.start_link(self(), assistant_id, thread_id)
+
+      Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "id" => run_id,
+            "object" => "thread.run",
+            "created_at" => 1_699_075_072,
+            "assistant_id" => assistant_id,
+            "thread_id" => thread_id,
+            "status" => "requires_action",
+            "required_action" => %{
+              "type" => "submit_tool_outputs",
+              "submit_tool_outputs" => %{
+                "tool_calls" => [
+                  %{
+                    "id" => UUID.uuid4(),
+                    "type" => "function",
+                    "function" => %{"name" => "tool_1", "arguments" => ~s({"foo":"bar","baz":1})}
+                  },
+                  %{
+                    "id" => UUID.uuid4(),
+                    "type" => "function",
+                    "function" => %{
+                      "name" => "tool_2",
+                      "arguments" => ~s({"ham":"spam","wham":2})
+                    }
+                  }
+                ]
+              }
+            },
+            "started_at" => 1_699_075_072,
+            "expires_at" => nil,
+            "cancelled_at" => nil,
+            "failed_at" => nil,
+            "completed_at" => 1_699_075_073,
+            "last_error" => nil,
+            "model" => "gpt-4-1106-preview",
+            "instructions" => nil,
+            "tools" => [],
+            "file_ids" => [],
+            "metadata" => %{}
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+
+      assert_receive {GptAgent, ^pid, %ToolCallRequested{}}, 5_000
+
+      assert {:error, :invalid_tool_call_id} =
+               GptAgent.submit_tool_output(pid, UUID.uuid4(), %{})
+    end
+
+    test "if there are other tool calls still outstanding, do not submit the tool calls to openai yet",
+         %{
+           bypass: bypass,
+           assistant_id: assistant_id,
+           thread_id: thread_id,
+           run_id: run_id
+         } do
+      {:ok, pid} = GptAgent.start_link(self(), assistant_id, thread_id)
+
+      tool_1_id = UUID.uuid4()
+      tool_2_id = UUID.uuid4()
+
+      Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "id" => run_id,
+            "object" => "thread.run",
+            "created_at" => 1_699_075_072,
+            "assistant_id" => assistant_id,
+            "thread_id" => thread_id,
+            "status" => "requires_action",
+            "required_action" => %{
+              "type" => "submit_tool_outputs",
+              "submit_tool_outputs" => %{
+                "tool_calls" => [
+                  %{
+                    "id" => tool_1_id,
+                    "type" => "function",
+                    "function" => %{"name" => "tool_1", "arguments" => ~s({"foo":"bar","baz":1})}
+                  },
+                  %{
+                    "id" => tool_2_id,
+                    "type" => "function",
+                    "function" => %{
+                      "name" => "tool_2",
+                      "arguments" => ~s({"ham":"spam","wham":2})
+                    }
+                  }
+                ]
+              }
+            },
+            "started_at" => 1_699_075_072,
+            "expires_at" => nil,
+            "cancelled_at" => nil,
+            "failed_at" => nil,
+            "completed_at" => 1_699_075_073,
+            "last_error" => nil,
+            "model" => "gpt-4-1106-preview",
+            "instructions" => nil,
+            "tools" => [],
+            "file_ids" => [],
+            "metadata" => %{}
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+
+      assert_receive {GptAgent, ^pid,
+                      %ToolCallRequested{
+                        id: ^tool_1_id,
+                        thread_id: ^thread_id,
+                        run_id: ^run_id,
+                        name: "tool_1",
+                        arguments: %{"foo" => "bar", "baz" => 1}
+                      }},
+                     5_000
+
+      assert_receive {GptAgent, ^pid,
+                      %ToolCallRequested{
+                        id: ^tool_2_id,
+                        thread_id: ^thread_id,
+                        run_id: ^run_id,
+                        name: "tool_2",
+                        arguments: %{"ham" => "spam", "wham" => 2}
+                      }},
+                     5_000
+
+      Bypass.stub(
+        bypass,
+        "POST",
+        "/v1/threads/#{thread_id}/runs/#{run_id}/submit_tool_outputs",
+        fn _conn ->
+          raise "Should not have called the OpenAI API to submit tool outputs"
+        end
+      )
+
+      :ok = GptAgent.submit_tool_output(pid, tool_2_id, %{some: "result"})
+    end
+
+    test "if all tool calls have been fulfilled, submit the output to openai",
+         %{
+           bypass: bypass,
+           assistant_id: assistant_id,
+           thread_id: thread_id,
+           run_id: run_id
+         } do
+      {:ok, pid} = GptAgent.start_link(self(), assistant_id, thread_id)
+
+      tool_1_id = UUID.uuid4()
+      tool_2_id = UUID.uuid4()
+
+      Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "id" => run_id,
+            "object" => "thread.run",
+            "created_at" => 1_699_075_072,
+            "assistant_id" => assistant_id,
+            "thread_id" => thread_id,
+            "status" => "requires_action",
+            "required_action" => %{
+              "type" => "submit_tool_outputs",
+              "submit_tool_outputs" => %{
+                "tool_calls" => [
+                  %{
+                    "id" => tool_1_id,
+                    "type" => "function",
+                    "function" => %{"name" => "tool_1", "arguments" => ~s({"foo":"bar","baz":1})}
+                  },
+                  %{
+                    "id" => tool_2_id,
+                    "type" => "function",
+                    "function" => %{
+                      "name" => "tool_2",
+                      "arguments" => ~s({"ham":"spam","wham":2})
+                    }
+                  }
+                ]
+              }
+            },
+            "started_at" => 1_699_075_072,
+            "expires_at" => nil,
+            "cancelled_at" => nil,
+            "failed_at" => nil,
+            "completed_at" => 1_699_075_073,
+            "last_error" => nil,
+            "model" => "gpt-4-1106-preview",
+            "instructions" => nil,
+            "tools" => [],
+            "file_ids" => [],
+            "metadata" => %{}
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+
+      assert_receive {GptAgent, ^pid,
+                      %ToolCallRequested{
+                        id: ^tool_1_id,
+                        thread_id: ^thread_id,
+                        run_id: ^run_id,
+                        name: "tool_1",
+                        arguments: %{"foo" => "bar", "baz" => 1}
+                      }},
+                     5_000
+
+      assert_receive {GptAgent, ^pid,
+                      %ToolCallRequested{
+                        id: ^tool_2_id,
+                        thread_id: ^thread_id,
+                        run_id: ^run_id,
+                        name: "tool_2",
+                        arguments: %{"ham" => "spam", "wham" => 2}
+                      }},
+                     5_000
+
+      Bypass.expect(
+        bypass,
+        "POST",
+        "/v1/threads/#{thread_id}/runs/#{run_id}/submit_tool_outputs",
+        fn conn ->
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          body = Jason.decode!(body)
+          assert Map.keys(body) == ["tool_outputs"]
+          assert length(body["tool_outputs"]) == 2
+
+          assert %{"tool_call_id" => tool_1_id, "output" => ~s({"another":"answer"})} in body[
+                   "tool_outputs"
+                 ]
+
+          assert %{"tool_call_id" => tool_2_id, "output" => ~s({"some":"result"})} in body[
+                   "tool_outputs"
+                 ]
+
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(
+            200,
+            Jason.encode!(%{
+              "id" => "run_abc123",
+              "object" => "thread.run",
+              "created_at" => 1_699_075_592,
+              "assistant_id" => "asst_abc123",
+              "thread_id" => "thread_abc123",
+              "status" => "queued",
+              "started_at" => 1_699_075_592,
+              "expires_at" => 1_699_076_192,
+              "cancelled_at" => nil,
+              "failed_at" => nil,
+              "completed_at" => nil,
+              "last_error" => nil,
+              "model" => "gpt-4",
+              "instructions" => "You tell the weather.",
+              "tools" => [
+                %{
+                  "type" => "function",
+                  "function" => %{
+                    "name" => "get_weather",
+                    "description" => "Determine weather in my location",
+                    "parameters" => %{
+                      "type" => "object",
+                      "properties" => %{
+                        "location" => %{
+                          "type" => "string",
+                          "description" => "The city and state e.g. San Francisco, CA"
+                        },
+                        "unit" => %{
+                          "type" => "string",
+                          "enum" => ["c", "f"]
+                        }
+                      },
+                      "required" => ["location"]
+                    }
+                  }
+                }
+              ],
+              "file_ids" => [],
+              "metadata" => %{}
+            })
+          )
+        end
+      )
+
+      :ok = GptAgent.submit_tool_output(pid, tool_2_id, %{some: "result"})
+      :ok = GptAgent.submit_tool_output(pid, tool_1_id, %{another: "answer"})
+    end
+  end
 end
