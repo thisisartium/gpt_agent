@@ -7,6 +7,9 @@
 			"command": "mix test.interactive --stale",
 			"isBackground": true,
 			"problemMatcher": [],
+			"runOptions": {
+				"runOn": "folderOpen"
+			},
 		},
 		{
 			"label": "Run Mix Check",
