@@ -17,6 +17,7 @@ defmodule GptAgent.MixProject do
       source_url: "https://github.com/fractaltechnologylabs/gpt_agent",
       homepage_url: "https://thisisartium.com",
       package: [
+        description: "A client for the OpenAI Assistants API",
         licenses: ["MIT"],
         links: %{
           "GitHub" => "https://github.com/fractaltechnologylabs/gpt_agent",
