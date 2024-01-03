@@ -4,7 +4,7 @@
 		{
 			"label": "Run Mix Test Interactive",
 			"type": "shell",
-			"command": "mix test.interactive --stale",
+			"command": "if [ -f .envrc ]; then mix test.interactive --stale; fi",
 			"isBackground": true,
 			"problemMatcher": [],
 			"runOptions": {
