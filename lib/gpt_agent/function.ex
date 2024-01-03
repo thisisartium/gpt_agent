@@ -65,8 +65,7 @@ defmodule GptAgent.Function do
               end),
             required:
               Enum.filter(parameters, fn parameter -> parameter.required end)
-              |> Enum.map(fn parameter -> parameter.name end),
-            additionalProperties: false
+              |> Enum.map(fn parameter -> parameter.name end)
           }
         }
       }
