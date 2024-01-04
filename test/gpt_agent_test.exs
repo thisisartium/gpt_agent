@@ -1,13 +1,13 @@
 defmodule GptAgentTest do
   @moduledoc false
 
-  use ExUnit.Case
+  use GptAgent.TestCase, async: true
+
   doctest GptAgent
 
   alias GptAgent.Events.{
     RunCompleted,
     RunStarted,
-    ThreadCreated,
     ToolCallRequested,
     UserMessageAdded
   }
@@ -115,20 +115,17 @@ defmodule GptAgentTest do
     {:ok, bypass: bypass, assistant_id: assistant_id, thread_id: thread_id, run_id: run_id}
   end
 
-  describe "start_link/2" do
-    test "starts the agent" do
-      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4())
-      assert Process.alive?(pid)
-    end
-
+  describe "create_thread/0" do
     test "creates a thread via the OpenAI API", %{bypass: bypass} do
+      thread_id = UUID.uuid4()
+
       Bypass.expect_once(bypass, "POST", "/v1/threads", fn conn ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.resp(
           201,
           Jason.encode!(%{
-            "id" => UUID.uuid4(),
+            "id" => thread_id,
             "object" => "thread",
             "created_at" => "1699012949",
             "metadata" => %{}
@@ -136,15 +133,7 @@ defmodule GptAgentTest do
         )
       end)
 
-      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4())
-
-      assert_receive {GptAgent, ^pid, :ready}, 5_000
-    end
-
-    test "sends the ThreadCreated event to the callback handler", %{thread_id: thread_id} do
-      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4())
-
-      assert_receive {GptAgent, ^pid, %ThreadCreated{id: ^thread_id}}, 5_000
+      assert_match(GptAgent.create_thread(), {:ok, ^thread_id})
     end
   end
 
@@ -152,22 +141,6 @@ defmodule GptAgentTest do
     test "starts the agent" do
       {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4(), UUID.uuid4())
       assert Process.alive?(pid)
-    end
-
-    test "does not create a thread via the OpenAI API", %{bypass: bypass} do
-      Bypass.stub(bypass, "POST", "/v1/threads", fn _conn ->
-        raise "Should not have called the OpenAI API to create a thread"
-      end)
-
-      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4(), UUID.uuid4())
-
-      assert_receive {GptAgent, ^pid, :ready}, 5_000
-    end
-
-    test "does not send the ThreadCreated event to the callback handler" do
-      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4(), UUID.uuid4())
-
-      refute_receive {GptAgent, ^pid, %ThreadCreated{}}, 100
     end
   end
 

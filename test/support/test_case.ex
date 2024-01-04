@@ -12,6 +12,8 @@ defmodule GptAgent.TestCase do
   using do
     quote do
       use ExUnitProperties
+
+      import AssertMatch, only: [assert_match: 2]
       import GptAgent.TestCase
     end
   end

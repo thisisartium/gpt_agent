@@ -4,7 +4,7 @@ defmodule GptAgent.MixProject do
   def project do
     [
       app: :gpt_agent,
-      version: "1.0.0",
+      version: "2.0.0-dev",
       elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -41,6 +41,7 @@ defmodule GptAgent.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:assert_match, "~> 1.0", only: :test},
       {:bypass, "~> 2.1", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},

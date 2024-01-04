@@ -9,7 +9,6 @@ defmodule GptAgent do
   alias GptAgent.Events.{
     RunCompleted,
     RunStarted,
-    ThreadCreated,
     ToolCallOutputRecorded,
     ToolCallRequested,
     UserMessageAdded
@@ -28,7 +27,7 @@ defmodule GptAgent do
     field :tool_outputs, [ToolCallOutputRecorded.t()], default: []
   end
 
-  defp ok(state, next), do: {:ok, state, next}
+  defp ok(state), do: {:ok, state}
   defp noreply(state), do: {:noreply, state}
   defp reply(state, reply), do: {:reply, reply, state}
   defp reply(state, reply, next), do: {:reply, reply, state, next}
@@ -38,31 +37,22 @@ defmodule GptAgent do
     state
   end
 
+  def create_thread do
+    {:ok, %{body: %{"id" => thread_id, "object" => "thread"}}} =
+      OpenAiClient.post("/v1/threads", json: "")
+
+    {:ok, thread_id}
+  end
+
   @doc """
   Initializes the GPT Agent
   """
-  @spec init(map()) :: {:ok, t(), {:continue, :create_thread}}
+  @spec init(map()) :: {:ok, t()}
   def init(init_arg) do
     init_arg
     |> Enum.into(%{pid: self()})
     |> then(&struct!(__MODULE__, &1))
-    |> ok({:continue, :create_thread})
-  end
-
-  def handle_continue(:create_thread, %__MODULE__{thread_id: nil} = state) do
-    {:ok, %{body: %{"id" => thread_id}}} = OpenAiClient.post("/v1/threads", json: "")
-
-    state
-    |> Map.put(:thread_id, thread_id)
-    |> send_callback(%ThreadCreated{id: thread_id})
-    |> send_callback(:ready)
-    |> noreply()
-  end
-
-  def handle_continue(:create_thread, state) do
-    state
-    |> send_callback(:ready)
-    |> noreply()
+    |> ok()
   end
 
   def handle_continue(:run, state) do
@@ -202,8 +192,8 @@ defmodule GptAgent do
   @doc """
   Starts the GPT Agent
   """
-  @spec start_link(pid(), binary(), binary() | nil) :: {:ok, pid()} | {:error, reason :: term()}
-  def start_link(callback_handler, assistant_id, thread_id \\ nil)
+  @spec start_link(pid(), binary(), binary()) :: {:ok, pid()} | {:error, reason :: term()}
+  def start_link(callback_handler, assistant_id, thread_id)
       when is_pid(callback_handler) do
     GenServer.start_link(__MODULE__,
       callback_handler: callback_handler,
