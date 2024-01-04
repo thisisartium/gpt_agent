@@ -19,7 +19,7 @@ defmodule GptAgent do
   typedstruct do
     field :pid, pid(), enforce: true
     field :callback_handler, pid(), enforce: true
-    field :default_assistant_id, binary(), enforce: true
+    field :default_assistant_id, binary()
     field :thread_id, binary() | nil
     field :running?, boolean(), default: false
     field :run_id, binary() | nil
@@ -200,12 +200,11 @@ defmodule GptAgent do
   @doc """
   Starts the GPT Agent
   """
-  @spec start_link(pid(), binary(), binary()) :: {:ok, pid()} | {:error, reason :: term()}
-  def start_link(callback_handler, assistant_id, thread_id)
+  @spec start_link(pid(), binary()) :: {:ok, pid()} | {:error, reason :: term()}
+  def start_link(callback_handler, thread_id)
       when is_pid(callback_handler) do
     GenServer.start_link(__MODULE__,
       callback_handler: callback_handler,
-      default_assistant_id: assistant_id,
       thread_id: thread_id
     )
   end
