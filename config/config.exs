@@ -7,6 +7,9 @@ case config_env() do
   :test ->
     config :bypass, enable_debug_log: true
 
+    config :open_ai_client, :openai_api_key, "test"
+    config :open_ai_client, :openai_organization_id, "test"
+
   _ ->
     nil
 end
