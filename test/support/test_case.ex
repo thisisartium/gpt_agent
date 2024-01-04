@@ -35,10 +35,10 @@ defmodule GptAgent.TestCase do
   end
 
   def term_other_than_uuid do
-    StreamData.filter(term(), fn x -> !is_uuid?(x) end)
+    StreamData.filter(term(), fn x -> !uuid?(x) end)
   end
 
-  def is_uuid?(value) do
+  def uuid?(value) do
     case UUID.info(value) do
       {:ok, _} -> true
       _ -> false
@@ -53,11 +53,11 @@ defmodule GptAgent.TestCase do
 
   def term_other_than_url do
     StreamData.filter(term(), fn x ->
-      !is_binary(x) || !is_url(x)
+      !is_binary(x) || !url?(x)
     end)
   end
 
-  defp is_url(data) do
+  defp url?(data) do
     case URI.new(data) do
       {:ok, _uri} -> true
       _ -> false
