@@ -37,6 +37,20 @@ defmodule GptAgentTest do
       )
     end)
 
+    Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        200,
+        Jason.encode!(%{
+          "id" => thread_id,
+          "object" => "thread",
+          "created_at" => "1699012949",
+          "metadata" => %{}
+        })
+      )
+    end)
+
     Bypass.stub(bypass, "POST", "/v1/threads/#{thread_id}/messages", fn conn ->
       conn
       |> Plug.Conn.put_resp_content_type("application/json")
@@ -133,9 +147,39 @@ defmodule GptAgentTest do
     end
   end
 
+  describe "connect/2" do
+    test "starts a GptAgent process for the given thread ID if no such process is running", %{
+      thread_id: thread_id
+    } do
+      assert {:ok, pid} = GptAgent.connect(self(), thread_id)
+      assert Process.alive?(pid)
+      assert {:ok, ^thread_id} = GptAgent.thread_id(pid)
+    end
+
+    test "does not start a new GptAgent process for the given thread ID if one is already running",
+         %{thread_id: thread_id} do
+      {:ok, pid1} = GptAgent.connect(self(), thread_id)
+      {:ok, pid2} = GptAgent.connect(self(), thread_id)
+      assert pid1 == pid2
+    end
+
+    test "returns {:error, :invalid_thread_id} if the thread ID is not a valid OpenAI thread ID",
+         %{bypass: bypass} do
+      thread_id = "invalid_thread_id"
+
+      Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(404, "")
+      end)
+
+      assert {:error, :invalid_thread_id} = GptAgent.connect(self(), thread_id)
+    end
+  end
+
   describe "set_default_assistant/2 and default_assistant_id/1" do
     test "sets the default assistant ID that will be used to process user messages" do
-      {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4())
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: UUID.uuid4())
 
       new_assistant_id = UUID.uuid4()
       assert :ok = GptAgent.set_default_assistant(pid, new_assistant_id)
@@ -150,7 +194,7 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       user_message_id = UUID.uuid4()
@@ -202,7 +246,7 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       Bypass.expect_once(bypass, "POST", "/v1/threads/#{thread_id}/runs", fn conn ->
@@ -243,7 +287,7 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       run_id: run_id
     } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
@@ -291,7 +335,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       tool_1_id = UUID.uuid4()
@@ -374,7 +418,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
@@ -435,7 +479,7 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       run_id: run_id
     } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
@@ -457,7 +501,7 @@ defmodule GptAgentTest do
       assistant_id: assistant_id,
       thread_id: thread_id
     } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       assert {:error, :run_not_in_progress} =
@@ -471,7 +515,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
@@ -536,7 +580,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       tool_1_id = UUID.uuid4()
@@ -630,7 +674,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(self(), thread_id)
+      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       tool_1_id = UUID.uuid4()

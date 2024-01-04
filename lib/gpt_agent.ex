@@ -37,6 +37,10 @@ defmodule GptAgent do
     state
   end
 
+  @doc """
+  Creates a new thread
+  """
+  @spec create_thread() :: {:ok, binary()}
   def create_thread do
     {:ok, %{body: %{"id" => thread_id, "object" => "thread"}}} =
       OpenAiClient.post("/v1/threads", json: "")
@@ -44,10 +48,7 @@ defmodule GptAgent do
     {:ok, thread_id}
   end
 
-  @doc """
-  Initializes the GPT Agent
-  """
-  @spec init(map()) :: {:ok, t()}
+  @impl true
   def init(init_arg) do
     init_arg
     |> Enum.into(%{pid: self()})
@@ -55,6 +56,7 @@ defmodule GptAgent do
     |> ok()
   end
 
+  @impl true
   def handle_continue(:run, state) do
     {:ok, %{body: %{"id" => id}}} =
       OpenAiClient.post("/v1/threads/#{state.thread_id}/runs",
@@ -78,18 +80,27 @@ defmodule GptAgent do
 
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
 
+  @impl true
   def handle_cast({:set_default_assistant_id, assistant_id}, state) do
     {:noreply, %{state | default_assistant_id: assistant_id}}
   end
 
-  def handle_call(:default_assistant_id, _caller, state) do
+  @impl true
+  def handle_call(:thread_id, _caller, %__MODULE__{} = state) do
+    reply(state, {:ok, state.thread_id})
+  end
+
+  @impl true
+  def handle_call(:default_assistant_id, _caller, %__MODULE__{} = state) do
     reply(state, {:ok, state.default_assistant_id})
   end
 
+  @impl true
   def handle_call({:add_user_message, _message}, _caller, %__MODULE__{running?: true} = state) do
     reply(state, {:error, :run_in_progress})
   end
 
+  @impl true
   def handle_call({:add_user_message, message}, _caller, state) do
     {:ok, message} = NonblankString.new(message)
 
@@ -105,6 +116,7 @@ defmodule GptAgent do
     |> reply(:ok, {:continue, :run})
   end
 
+  @impl true
   def handle_call(
         {:submit_tool_output, _tool_call_id, _tool_output},
         _caller,
@@ -113,6 +125,7 @@ defmodule GptAgent do
     reply(state, {:error, :run_not_in_progress})
   end
 
+  @impl true
   def handle_call({:submit_tool_output, tool_call_id, tool_output}, _caller, state) do
     case Enum.find_index(state.tool_calls, fn %ToolCallRequested{id: id} -> id == tool_call_id end) do
       nil ->
@@ -154,6 +167,7 @@ defmodule GptAgent do
 
   defp possibly_send_outputs_to_openai(state), do: state
 
+  @impl true
   def handle_info({:check_run_status, id}, state) do
     {:ok, %{body: %{"status" => status} = response}} =
       OpenAiClient.get("/v1/threads/#{state.thread_id}/runs/#{id}", [])
@@ -200,27 +214,75 @@ defmodule GptAgent do
   @doc """
   Starts the GPT Agent
   """
-  @spec start_link(pid(), binary()) :: {:ok, pid()} | {:error, reason :: term()}
-  def start_link(callback_handler, thread_id)
-      when is_pid(callback_handler) do
-    GenServer.start_link(__MODULE__,
-      callback_handler: callback_handler,
-      thread_id: thread_id
-    )
+  @spec start_link(keyword()) :: {:ok, pid()} | {:error, reason :: term()}
+  def start_link(init_arg) do
+    GenServer.start_link(__MODULE__, init_arg)
   end
 
+  @doc """
+  Connects to the GPT Agent
+  """
+  @spec connect(pid(), binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
+  def connect(callback_handler, thread_id) do
+    case Registry.lookup(GptAgent.Registry, thread_id) do
+      [{_, pid}] ->
+        {:ok, pid}
+
+      [] ->
+        case OpenAiClient.get("/v1/threads/#{thread_id}") do
+          {:ok, %{status: 404}} ->
+            {:error, :invalid_thread_id}
+
+          {:ok, _} ->
+            {:ok, pid} =
+              DynamicSupervisor.start_child(
+                GptAgent.Supervisor,
+                {__MODULE__, [callback_handler: callback_handler, thread_id: thread_id]}
+              )
+
+            Registry.register(GptAgent.Registry, thread_id, pid)
+            {:ok, pid}
+        end
+    end
+  end
+
+  @doc """
+  Returns the thread ID
+  """
+  @spec thread_id(pid()) :: binary()
+  def thread_id(pid) do
+    GenServer.call(pid, :thread_id)
+  end
+
+  @doc """
+  Returns the default assistant
+  """
+  @spec default_assistant(pid()) :: binary()
   def default_assistant(pid) do
     GenServer.call(pid, :default_assistant_id)
   end
 
+  @doc """
+  Sets the default assistant
+  """
+  @spec set_default_assistant(pid(), binary()) :: :ok
   def set_default_assistant(pid, assistant_id) do
     GenServer.cast(pid, {:set_default_assistant_id, assistant_id})
   end
 
+  @doc """
+  Adds a user message
+  """
+  @spec add_user_message(pid(), binary()) :: {:ok, binary()} | {:error, :run_in_progress}
   def add_user_message(pid, message) do
     GenServer.call(pid, {:add_user_message, message})
   end
 
+  @doc """
+  Submits tool output
+  """
+  @spec submit_tool_output(pid(), binary(), map()) ::
+          {:ok, binary()} | {:error, :invalid_tool_call_id}
   def submit_tool_output(pid, tool_call_id, tool_output) do
     GenServer.call(pid, {:submit_tool_output, tool_call_id, tool_output})
   end

@@ -6,7 +6,9 @@ defmodule GptAgent.Supervisor do
   use DynamicSupervisor
 
   def start_link(init_arg) do
-    DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
+    {:ok, pid} = DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
+    DynamicSupervisor.start_child(pid, {Registry, [keys: :unique, name: GptAgent.Registry]})
+    {:ok, pid}
   end
 
   @impl DynamicSupervisor
