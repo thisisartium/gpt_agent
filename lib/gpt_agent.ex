@@ -19,7 +19,7 @@ defmodule GptAgent do
   typedstruct do
     field :pid, pid(), enforce: true
     field :callback_handler, pid(), enforce: true
-    field :assistant_id, binary(), enforce: true
+    field :default_assistant_id, binary(), enforce: true
     field :thread_id, binary() | nil
     field :running?, boolean(), default: false
     field :run_id, binary() | nil
@@ -59,7 +59,7 @@ defmodule GptAgent do
     {:ok, %{body: %{"id" => id}}} =
       OpenAiClient.post("/v1/threads/#{state.thread_id}/runs",
         json: %{
-          "assistant_id" => state.assistant_id
+          "assistant_id" => state.default_assistant_id
         }
       )
 
@@ -71,12 +71,20 @@ defmodule GptAgent do
     |> send_callback(%RunStarted{
       id: id,
       thread_id: state.thread_id,
-      assistant_id: state.assistant_id
+      assistant_id: state.default_assistant_id
     })
     |> noreply()
   end
 
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
+
+  def handle_cast({:set_default_assistant_id, assistant_id}, state) do
+    {:noreply, %{state | default_assistant_id: assistant_id}}
+  end
+
+  def handle_call(:default_assistant_id, _caller, state) do
+    reply(state, {:ok, state.default_assistant_id})
+  end
 
   def handle_call({:add_user_message, _message}, _caller, %__MODULE__{running?: true} = state) do
     reply(state, {:error, :run_in_progress})
@@ -159,7 +167,7 @@ defmodule GptAgent do
     |> send_callback(%RunCompleted{
       id: id,
       thread_id: state.thread_id,
-      assistant_id: state.assistant_id
+      assistant_id: state.default_assistant_id
     })
     |> noreply()
   end
@@ -197,9 +205,17 @@ defmodule GptAgent do
       when is_pid(callback_handler) do
     GenServer.start_link(__MODULE__,
       callback_handler: callback_handler,
-      assistant_id: assistant_id,
+      default_assistant_id: assistant_id,
       thread_id: thread_id
     )
+  end
+
+  def default_assistant(pid) do
+    GenServer.call(pid, :default_assistant_id)
+  end
+
+  def set_default_assistant(pid, assistant_id) do
+    GenServer.cast(pid, {:set_default_assistant_id, assistant_id})
   end
 
   def add_user_message(pid, message) do

@@ -133,10 +133,14 @@ defmodule GptAgentTest do
     end
   end
 
-  describe "start_link/3" do
-    test "starts the agent" do
+  describe "set_default_assistant/2 and default_assistant_id/1" do
+    test "sets the default assistant ID that will be used to process user messages" do
       {:ok, pid} = GptAgent.start_link(self(), UUID.uuid4(), UUID.uuid4())
-      assert Process.alive?(pid)
+
+      new_assistant_id = UUID.uuid4()
+      assert :ok = GptAgent.set_default_assistant(pid, new_assistant_id)
+
+      assert GptAgent.default_assistant(pid) == {:ok, new_assistant_id}
     end
   end
 
