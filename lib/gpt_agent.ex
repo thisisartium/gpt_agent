@@ -18,7 +18,6 @@ defmodule GptAgent do
 
   typedstruct do
     field :pid, pid(), enforce: true
-    field :callback_handler, pid(), enforce: true
     field :default_assistant_id, binary()
     field :thread_id, binary() | nil
     field :running?, boolean(), default: false
@@ -33,7 +32,7 @@ defmodule GptAgent do
   defp reply(state, reply, next), do: {:reply, reply, state, next}
 
   defp send_callback(state, callback) do
-    send(state.callback_handler, {__MODULE__, state.pid, callback})
+    Phoenix.PubSub.broadcast(GptAgent.PubSub, "gpt_agent:#{state.thread_id}", {self(), callback})
     state
   end
 
@@ -53,7 +52,19 @@ defmodule GptAgent do
     init_arg
     |> Enum.into(%{pid: self()})
     |> then(&struct!(__MODULE__, &1))
+    |> register()
     |> ok()
+  end
+
+  defp register(state) do
+    case state.thread_id do
+      nil ->
+        state
+
+      thread_id ->
+        Registry.register(GptAgent.Registry, thread_id, :gpt_agent)
+        state
+    end
   end
 
   @impl true
@@ -83,6 +94,12 @@ defmodule GptAgent do
   @impl true
   def handle_cast({:set_default_assistant_id, assistant_id}, state) do
     {:noreply, %{state | default_assistant_id: assistant_id}}
+  end
+
+  @impl true
+  def handle_call(:shutdown, _caller, state) do
+    Registry.unregister(GptAgent.Registry, state.thread_id)
+    ok(state)
   end
 
   @impl true
@@ -222,10 +239,11 @@ defmodule GptAgent do
   @doc """
   Connects to the GPT Agent
   """
-  @spec connect(pid(), binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
-  def connect(callback_handler, thread_id) do
+  @spec connect(binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
+  def connect(thread_id) do
     case Registry.lookup(GptAgent.Registry, thread_id) do
-      [{_, pid}] ->
+      [{pid, :gpt_agent}] ->
+        Phoenix.PubSub.subscribe(GptAgent.PubSub, "gpt_agent:#{thread_id}")
         {:ok, pid}
 
       [] ->
@@ -234,16 +252,18 @@ defmodule GptAgent do
             {:error, :invalid_thread_id}
 
           {:ok, _} ->
-            {:ok, pid} =
-              DynamicSupervisor.start_child(
-                GptAgent.Supervisor,
-                {__MODULE__, [callback_handler: callback_handler, thread_id: thread_id]}
-              )
+            Phoenix.PubSub.subscribe(GptAgent.PubSub, "gpt_agent:#{thread_id}")
 
-            Registry.register(GptAgent.Registry, thread_id, pid)
-            {:ok, pid}
+            DynamicSupervisor.start_child(
+              GptAgent.Supervisor,
+              {__MODULE__, [thread_id: thread_id]}
+            )
         end
     end
+  end
+
+  def shutdown(pid) do
+    :ok = DynamicSupervisor.terminate_child(GptAgent.Supervisor, pid)
   end
 
   @doc """

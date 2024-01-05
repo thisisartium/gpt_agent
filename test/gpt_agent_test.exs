@@ -5,6 +5,8 @@ defmodule GptAgentTest do
 
   doctest GptAgent
 
+  require Eventually
+
   alias GptAgent.Events.{
     RunCompleted,
     RunStarted,
@@ -122,6 +124,13 @@ defmodule GptAgentTest do
       )
     end)
 
+    on_exit(fn ->
+      Registry.lookup(GptAgent.Registry, thread_id)
+      |> Enum.each(fn {pid, :gpt_agent} ->
+        GptAgent.shutdown(pid)
+      end)
+    end)
+
     {:ok, bypass: bypass, assistant_id: assistant_id, thread_id: thread_id, run_id: run_id}
   end
 
@@ -151,16 +160,18 @@ defmodule GptAgentTest do
     test "starts a GptAgent process for the given thread ID if no such process is running", %{
       thread_id: thread_id
     } do
-      assert {:ok, pid} = GptAgent.connect(self(), thread_id)
+      assert {:ok, pid} = GptAgent.connect(thread_id)
       assert Process.alive?(pid)
       assert {:ok, ^thread_id} = GptAgent.thread_id(pid)
+      GptAgent.shutdown(pid)
     end
 
     test "does not start a new GptAgent process for the given thread ID if one is already running",
          %{thread_id: thread_id} do
-      {:ok, pid1} = GptAgent.connect(self(), thread_id)
-      {:ok, pid2} = GptAgent.connect(self(), thread_id)
+      {:ok, pid1} = GptAgent.connect(thread_id)
+      {:ok, pid2} = GptAgent.connect(thread_id)
       assert pid1 == pid2
+      GptAgent.shutdown(pid1)
     end
 
     test "returns {:error, :invalid_thread_id} if the thread ID is not a valid OpenAI thread ID",
@@ -173,13 +184,26 @@ defmodule GptAgentTest do
         |> Plug.Conn.resp(404, "")
       end)
 
-      assert {:error, :invalid_thread_id} = GptAgent.connect(self(), thread_id)
+      assert {:error, :invalid_thread_id} = GptAgent.connect(thread_id)
+    end
+  end
+
+  describe "shutdown/1" do
+    test "shuts down the GptAgent process with the given pid", %{
+      thread_id: thread_id
+    } do
+      {:ok, pid} = GptAgent.connect(thread_id)
+      assert Process.alive?(pid)
+
+      assert :ok = GptAgent.shutdown(pid)
+      refute Process.alive?(pid)
+      assert_eventually(Registry.lookup(GptAgent.Registry, thread_id) == [])
     end
   end
 
   describe "set_default_assistant/2 and default_assistant_id/1" do
     test "sets the default assistant ID that will be used to process user messages" do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: UUID.uuid4())
+      {:ok, pid} = GptAgent.start_link(thread_id: UUID.uuid4())
 
       new_assistant_id = UUID.uuid4()
       assert :ok = GptAgent.set_default_assistant(pid, new_assistant_id)
@@ -194,7 +218,7 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       user_message_id = UUID.uuid4()
@@ -230,7 +254,7 @@ defmodule GptAgentTest do
 
       :ok = GptAgent.add_user_message(pid, message_content)
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %UserMessageAdded{
                         id: ^user_message_id,
                         thread_id: ^thread_id,
@@ -246,7 +270,7 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       Bypass.expect_once(bypass, "POST", "/v1/threads/#{thread_id}/runs", fn conn ->
@@ -270,7 +294,7 @@ defmodule GptAgentTest do
 
       :ok = GptAgent.add_user_message(pid, "Hello")
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %RunStarted{
                         id: run_id,
                         thread_id: ^thread_id,
@@ -287,7 +311,7 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       run_id: run_id
     } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
@@ -319,7 +343,7 @@ defmodule GptAgentTest do
 
       :ok = GptAgent.add_user_message(pid, "Hello")
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %RunCompleted{
                         id: ^run_id,
                         thread_id: ^thread_id,
@@ -335,7 +359,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       tool_1_id = UUID.uuid4()
@@ -390,7 +414,7 @@ defmodule GptAgentTest do
 
       :ok = GptAgent.add_user_message(pid, "Hello")
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %ToolCallRequested{
                         id: ^tool_1_id,
                         thread_id: ^thread_id,
@@ -400,7 +424,7 @@ defmodule GptAgentTest do
                       }},
                      5_000
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %ToolCallRequested{
                         id: ^tool_2_id,
                         thread_id: ^thread_id,
@@ -418,7 +442,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
@@ -479,12 +503,12 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       run_id: run_id
     } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %RunCompleted{
                         id: ^run_id,
                         thread_id: ^thread_id,
@@ -501,7 +525,7 @@ defmodule GptAgentTest do
       assistant_id: assistant_id,
       thread_id: thread_id
     } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       assert {:error, :run_not_in_progress} =
@@ -515,7 +539,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
@@ -567,7 +591,7 @@ defmodule GptAgentTest do
 
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
 
-      assert_receive {GptAgent, ^pid, %ToolCallRequested{}}, 5_000
+      assert_receive {^pid, %ToolCallRequested{}}, 5_000
 
       assert {:error, :invalid_tool_call_id} =
                GptAgent.submit_tool_output(pid, UUID.uuid4(), %{})
@@ -580,7 +604,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       tool_1_id = UUID.uuid4()
@@ -635,7 +659,7 @@ defmodule GptAgentTest do
 
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %ToolCallRequested{
                         id: ^tool_1_id,
                         thread_id: ^thread_id,
@@ -645,7 +669,7 @@ defmodule GptAgentTest do
                       }},
                      5_000
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %ToolCallRequested{
                         id: ^tool_2_id,
                         thread_id: ^thread_id,
@@ -674,7 +698,7 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.start_link(callback_handler: self(), thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id)
       :ok = GptAgent.set_default_assistant(pid, assistant_id)
 
       tool_1_id = UUID.uuid4()
@@ -729,7 +753,7 @@ defmodule GptAgentTest do
 
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %ToolCallRequested{
                         id: ^tool_1_id,
                         thread_id: ^thread_id,
@@ -739,7 +763,7 @@ defmodule GptAgentTest do
                       }},
                      5_000
 
-      assert_receive {GptAgent, ^pid,
+      assert_receive {^pid,
                       %ToolCallRequested{
                         id: ^tool_2_id,
                         thread_id: ^thread_id,
