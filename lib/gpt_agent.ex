@@ -262,6 +262,21 @@ defmodule GptAgent do
     end
   end
 
+  @doc """
+  Connects to the GPT Agent and sets the default assistant
+  """
+  @spec connect(binary(), binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
+  def connect(thread_id, assistant_id) do
+    case connect(thread_id) do
+      {:ok, pid} ->
+        :ok = set_default_assistant(pid, assistant_id)
+        {:ok, pid}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   def shutdown(pid) do
     :ok = DynamicSupervisor.terminate_child(GptAgent.Supervisor, pid)
   end
