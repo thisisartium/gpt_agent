@@ -17,7 +17,6 @@ defmodule GptAgent do
   alias GptAgent.Values.NonblankString
 
   typedstruct do
-    field :pid, pid(), enforce: true
     field :default_assistant_id, binary()
     field :thread_id, binary() | nil
     field :running?, boolean(), default: false
@@ -50,7 +49,6 @@ defmodule GptAgent do
   @impl true
   def init(init_arg) do
     init_arg
-    |> Enum.into(%{pid: self()})
     |> then(&struct!(__MODULE__, &1))
     |> register()
     |> ok()

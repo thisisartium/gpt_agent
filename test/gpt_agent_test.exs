@@ -387,6 +387,85 @@ defmodule GptAgentTest do
                      5_000
     end
 
+    @tag skip: "Incomplete test implementation paused for demo"
+    test "when the run is completed, publishes any messages added to the thread by the assistant",
+         %{
+           bypass: bypass,
+           assistant_id: assistant_id,
+           thread_id: thread_id,
+           run_id: run_id
+         } do
+      {:ok, pid} = GptAgent.connect(thread_id, assistant_id)
+
+      Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/messages", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "object" => "list",
+            "data" => [
+              %{
+                "id" => "msg_abc123",
+                "object" => "thread.message",
+                "created_at" => 1_699_016_383,
+                "thread_id" => "thread_abc123",
+                "role" => "user",
+                "content" => [
+                  %{
+                    "type" => "text",
+                    "text" => %{
+                      "value" => "How does AI work? Explain it in simple terms.",
+                      "annotations" => []
+                    }
+                  }
+                ],
+                "file_ids" => [],
+                "assistant_id" => nil,
+                "run_id" => nil,
+                "metadata" => %{}
+              },
+              %{
+                "id" => "msg_abc456",
+                "object" => "thread.message",
+                "created_at" => 1_699_016_383,
+                "thread_id" => "thread_abc123",
+                "role" => "user",
+                "content" => [
+                  %{
+                    "type" => "text",
+                    "text" => %{
+                      "value" => "Hello, what is AI?",
+                      "annotations" => []
+                    }
+                  }
+                ],
+                "file_ids" => [
+                  "file-abc123"
+                ],
+                "assistant_id" => nil,
+                "run_id" => nil,
+                "metadata" => %{}
+              }
+            ],
+            "first_id" => "msg_abc123",
+            "last_id" => "msg_abc456",
+            "has_more" => false
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, "Hello")
+
+      assert_receive {^pid,
+                      %RunCompleted{
+                        id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id
+                      }},
+                     5_000
+    end
+
     test "when the run makes tool calls, sends the ToolCallRequested event to the callback handler for each tool that is called",
          %{
            bypass: bypass,
