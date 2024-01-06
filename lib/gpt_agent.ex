@@ -298,7 +298,11 @@ defmodule GptAgent do
   end
 
   def shutdown(pid) do
-    :ok = DynamicSupervisor.terminate_child(GptAgent.Supervisor, pid)
+    if Process.alive?(pid) do
+      :ok = DynamicSupervisor.terminate_child(GptAgent.Supervisor, pid)
+    end
+
+    :ok
   end
 
   @doc """
