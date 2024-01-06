@@ -650,6 +650,7 @@ defmodule GptAgentTest do
                      5_000
 
       assert :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+      assert_receive {^pid, %UserMessageAdded{}}, 5_000
     end
   end
 
