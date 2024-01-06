@@ -418,6 +418,8 @@ defmodule GptAgentTest do
         "Artificial Intelligence, or AI, is the simulation of human intelligence processes by machines, especially computer systems."
 
       Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/messages", fn conn ->
+        assert conn.params["order"] == "asc"
+
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.resp(
@@ -425,26 +427,6 @@ defmodule GptAgentTest do
           Jason.encode!(%{
             "object" => "list",
             "data" => [
-              %{
-                "id" => message_id,
-                "object" => "thread.message",
-                "created_at" => 1_699_016_384,
-                "thread_id" => thread_id,
-                "role" => "assistant",
-                "content" => [
-                  %{
-                    "type" => "text",
-                    "text" => %{
-                      "value" => message_content,
-                      "annotations" => []
-                    }
-                  }
-                ],
-                "file_ids" => [],
-                "assistant_id" => assistant_id,
-                "run_id" => run_id,
-                "metadata" => %{}
-              },
               %{
                 "id" => "msg_abc456",
                 "object" => "thread.message",
@@ -466,10 +448,30 @@ defmodule GptAgentTest do
                 "assistant_id" => nil,
                 "run_id" => nil,
                 "metadata" => %{}
+              },
+              %{
+                "id" => message_id,
+                "object" => "thread.message",
+                "created_at" => 1_699_016_384,
+                "thread_id" => thread_id,
+                "role" => "assistant",
+                "content" => [
+                  %{
+                    "type" => "text",
+                    "text" => %{
+                      "value" => message_content,
+                      "annotations" => []
+                    }
+                  }
+                ],
+                "file_ids" => [],
+                "assistant_id" => assistant_id,
+                "run_id" => run_id,
+                "metadata" => %{}
               }
             ],
-            "first_id" => message_id,
-            "last_id" => "msg_abc456",
+            "last_id" => message_id,
+            "first_id" => "msg_abc456",
             "has_more" => false
           })
         )
@@ -504,7 +506,10 @@ defmodule GptAgentTest do
       message_content_2 = Faker.Lorem.paragraph()
 
       Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/messages", fn conn ->
+        assert conn.params["order"] == "asc"
+        refute conn.params["after"]
         refute conn.params["before"]
+        refute conn.params["limit"]
 
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
@@ -513,26 +518,6 @@ defmodule GptAgentTest do
           Jason.encode!(%{
             "object" => "list",
             "data" => [
-              %{
-                "id" => message_id_1,
-                "object" => "thread.message",
-                "created_at" => 1_699_016_384,
-                "thread_id" => thread_id,
-                "role" => "assistant",
-                "content" => [
-                  %{
-                    "type" => "text",
-                    "text" => %{
-                      "value" => message_content_1,
-                      "annotations" => []
-                    }
-                  }
-                ],
-                "file_ids" => [],
-                "assistant_id" => assistant_id,
-                "run_id" => run_id,
-                "metadata" => %{}
-              },
               %{
                 "id" => "msg_abc456",
                 "object" => "thread.message",
@@ -554,10 +539,30 @@ defmodule GptAgentTest do
                 "assistant_id" => nil,
                 "run_id" => nil,
                 "metadata" => %{}
+              },
+              %{
+                "id" => message_id_1,
+                "object" => "thread.message",
+                "created_at" => 1_699_016_384,
+                "thread_id" => thread_id,
+                "role" => "assistant",
+                "content" => [
+                  %{
+                    "type" => "text",
+                    "text" => %{
+                      "value" => message_content_1,
+                      "annotations" => []
+                    }
+                  }
+                ],
+                "file_ids" => [],
+                "assistant_id" => assistant_id,
+                "run_id" => run_id,
+                "metadata" => %{}
               }
             ],
-            "first_id" => message_id_1,
-            "last_id" => "msg_abc456",
+            "first_id" => "msg_abc456",
+            "last_id" => message_id_1,
             "has_more" => false
           })
         )
@@ -580,7 +585,10 @@ defmodule GptAgentTest do
         "GET",
         "/v1/threads/#{thread_id}/messages",
         fn conn ->
-          assert conn.params["before"] == message_id_1
+          assert conn.params["order"] == "asc"
+          assert conn.params["after"] == message_id_1
+          refute conn.params["before"]
+          refute conn.params["limit"]
 
           conn
           |> Plug.Conn.put_resp_content_type("application/json")

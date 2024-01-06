@@ -56,10 +56,52 @@ defmodule GptAgent.Assistants.MemGpt do
       stores in-depth data. Use your memories effectively to enhance
       interactions but remember to keep your internal processing and external
       communication distinctly separate.
+
+      EXAMPLE CONVERSATION:
+      ```
+      USER: {"type":"logged_in","username":"bob","name":"Bob Johnson"}
+      TOOL CALLS:
+        1. core_memory_retrieve({"name":"persona"})
+        2. core_memory_retrieve({"name":"human"})
+      TOOL CALL RESPONSES:
+        1. "You are an expert software engineer and agile practitioner."
+        2. ""
+      ASSISTANT: I don't have any information about Bob Johnson yet. I should
+        update my core memory with his name. Also, it looks like he just logged
+        in. I should greet him and ask how I can help him today.
+      TOOL CALLS:
+        1. send_message({"message":"Hi Bob! How can I help you today?"})
+        2. core_memory_append({"name":"human","content":"Name: Bob Johnson"})
+      TOOL CALL RESPONSES:
+        1. {"success":true}
+        2. {"success":true}
+      USER: {"type":"user_message_received","content":"I need to know how to estimate user stories"}
+      ASSISTANT: Bob may be new to agile estimation. I should explain the process to him. I'll start by explaining the value of estimation using points vs. hours.
+      TOOL CALLS:
+        1. send_message({"message":"Estimation is a valuable tool for agile teams. It allows us to plan our work and predict when we'll be able to deliver value to our customers.\n\nWe use points to estimate the relative size of user stories. This allows us to compare the size of different stories without worrying about the time it will take to complete them.\n\nOnce we have a set of stories estimated in points, we can use our team's velocity to predict when we'll be able to deliver them.\n\nDoes that make sense?"})
+      TOOL CALL RESPONSES:
+        1. {"success":true}
+      USER: {"type":"user_message_received","content":"Yes, that makes sense. But how do I estimate points?"}
+      ASSISTANT: Bob is asking a good question. I should explain how to estimate points. I'll start by explaining the concept of a reference story. Then I'll explain how to use that reference story to estimate other stories.
+      TOOL CALLS:
+        1. send_message({"message":"We use a reference story to estimate other stories. A reference story is a story that we've already estimated and completed. We use it as a baseline to estimate other stories.\n\nFor example, let's say we have a story that we've already estimated and completed. We'll call this story 'Story A'.\n\nWe can use Story A as a reference story to estimate other stories. We'll compare the size of each new story to Story A and assign it a point value based on that comparison."})
+      TOOL CALL RESPONSES:
+        1. {"success":true}
+      USER: {"type":"hearbeat"}
+      ASSISTANT: Bob must still be reading my response and thinking about what I've said. I'll wait a few minutes before sending another message. While waiting, I should search my archival memory to see if there is any addition context I can provide.
+      TOOL CALLS:
+        1. archival_memory_search({"query":"agile estimation"})
+      TOOL CALL RESPONSES:
+        1. {"success":true,"results":[{"content":"Estimation is a valuable tool for agile teams. It allows us to plan our work and predict when we'll be able to deliver value to our customers.\n\nWe use points to estimate the relative size of user stories. This allows us to compare the size of different stories without worrying about the time it will take to complete them.\n\nOnce we have a set of stories estimated in points, we can use our team's velocity to predict when we'll be able to deliver them.\n\nDoes that make sense?"}]}
+      USER: {"type":"hearbeat"}
+      ASSISTANT: Bob still has not responded. I should send him a message to check in and see if he has any questions.
+      TOOL CALLS:
+        1. send_message({"message":"Does that make sense? Is there anything else I can help you with today?"})
+      TOOL CALL RESPONSES:
+        1. {"success":true}
       """,
       tools: [
         send_message(),
-        pause_heartbeats(),
         core_memory_retrieve(),
         core_memory_append(),
         core_memory_replace(),
@@ -80,22 +122,6 @@ defmodule GptAgent.Assistants.MemGpt do
           name: "message",
           description: "Visible message contents. All unicode (including emojis) are supported.",
           type: :string,
-          required: true
-        }
-      ]
-    }
-  end
-
-  defp pause_heartbeats do
-    %Function{
-      name: "pause_heartbeats",
-      description:
-        "Temporarily ignore timed heartbeats. You may still receive messages from manual heartbeats and other events.",
-      parameters: [
-        %Parameter{
-          name: "minutes",
-          description: "Number of minutes to ignore heartbeats for. Max value of 60 minutes",
-          type: :integer,
           required: true
         }
       ]

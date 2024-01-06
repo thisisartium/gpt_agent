@@ -93,9 +93,9 @@ defmodule GptAgent do
   @impl true
   def handle_continue(:read_messages, state) do
     url =
-      "/v1/threads/#{state.thread_id}/messages" <>
+      "/v1/threads/#{state.thread_id}/messages?order=asc" <>
         if state.last_message_id do
-          "?before=#{state.last_message_id}"
+          "&after=#{state.last_message_id}"
         else
           ""
         end
@@ -107,24 +107,22 @@ defmodule GptAgent do
     |> noreply()
   end
 
-  defp process_messages(state, []) do
-    state
-  end
-
-  defp process_messages(state, [%{"id" => last_message_id} | _rest] = messages) do
-    for %{"role" => "assistant"} = message <- messages do
+  defp process_messages(state, messages) do
+    Enum.reduce(messages, state, fn message, state ->
       [%{"text" => %{"value" => content}} | _rest] = message["content"]
 
-      send_callback(state, %AssistantMessageAdded{
-        message_id: message["id"],
-        thread_id: message["thread_id"],
-        run_id: message["run_id"],
-        assistant_id: message["assistant_id"],
-        content: content
-      })
-    end
+      if message["role"] == "assistant" do
+        send_callback(state, %AssistantMessageAdded{
+          message_id: message["id"],
+          thread_id: message["thread_id"],
+          run_id: message["run_id"],
+          assistant_id: message["assistant_id"],
+          content: content
+        })
+      end
 
-    %{state | last_message_id: last_message_id}
+      %{state | last_message_id: message["id"]}
+    end)
   end
 
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
@@ -211,9 +209,10 @@ defmodule GptAgent do
   defp possibly_send_outputs_to_openai(
          %{running?: true, tool_calls: [], tool_outputs: [_ | _]} = state
        ) do
-    OpenAiClient.post("/v1/threads/#{state.thread_id}/runs/#{state.run_id}/submit_tool_outputs",
-      json: %{tool_outputs: state.tool_outputs}
-    )
+    {:ok, %{body: %{"object" => "thread.run", "cancelled_at" => nil, "failed_at" => nil}}} =
+      OpenAiClient.post("/v1/threads/#{state.thread_id}/runs/#{state.run_id}/submit_tool_outputs",
+        json: %{tool_outputs: state.tool_outputs}
+      )
 
     Process.send_after(self(), {:check_run_status, state.run_id}, heartbeat_interval_ms())
 
