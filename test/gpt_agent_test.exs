@@ -488,6 +488,159 @@ defmodule GptAgentTest do
                      5_000
     end
 
+    test "only publishes messages added by the assistant that were added after the last seen message",
+         %{
+           bypass: bypass,
+           assistant_id: assistant_id,
+           thread_id: thread_id,
+           run_id: run_id
+         } do
+      {:ok, pid} = GptAgent.connect(thread_id, assistant_id)
+
+      message_id_1 = UUID.uuid4()
+      message_content_1 = Faker.Lorem.paragraph()
+
+      message_id_2 = UUID.uuid4()
+      message_content_2 = Faker.Lorem.paragraph()
+
+      Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/messages", fn conn ->
+        refute conn.params["before"]
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "object" => "list",
+            "data" => [
+              %{
+                "id" => message_id_1,
+                "object" => "thread.message",
+                "created_at" => 1_699_016_384,
+                "thread_id" => thread_id,
+                "role" => "assistant",
+                "content" => [
+                  %{
+                    "type" => "text",
+                    "text" => %{
+                      "value" => message_content_1,
+                      "annotations" => []
+                    }
+                  }
+                ],
+                "file_ids" => [],
+                "assistant_id" => assistant_id,
+                "run_id" => run_id,
+                "metadata" => %{}
+              },
+              %{
+                "id" => "msg_abc456",
+                "object" => "thread.message",
+                "created_at" => 1_699_016_383,
+                "thread_id" => thread_id,
+                "role" => "user",
+                "content" => [
+                  %{
+                    "type" => "text",
+                    "text" => %{
+                      "value" => "Hello, what is AI?",
+                      "annotations" => []
+                    }
+                  }
+                ],
+                "file_ids" => [
+                  "file-abc123"
+                ],
+                "assistant_id" => nil,
+                "run_id" => nil,
+                "metadata" => %{}
+              }
+            ],
+            "first_id" => message_id_1,
+            "last_id" => "msg_abc456",
+            "has_more" => false
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, "Hello")
+
+      assert_receive {^pid,
+                      %AssistantMessageAdded{
+                        run_id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id,
+                        message_id: ^message_id_1,
+                        content: ^message_content_1
+                      }},
+                     5_000
+
+      Bypass.expect_once(
+        bypass,
+        "GET",
+        "/v1/threads/#{thread_id}/messages",
+        fn conn ->
+          assert conn.params["before"] == message_id_1
+
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(
+            200,
+            Jason.encode!(%{
+              "object" => "list",
+              "data" => [
+                %{
+                  "id" => message_id_2,
+                  "object" => "thread.message",
+                  "created_at" => 1_699_016_385,
+                  "thread_id" => thread_id,
+                  "role" => "assistant",
+                  "content" => [
+                    %{
+                      "type" => "text",
+                      "text" => %{
+                        "value" => message_content_2,
+                        "annotations" => []
+                      }
+                    }
+                  ],
+                  "file_ids" => [],
+                  "assistant_id" => assistant_id,
+                  "run_id" => run_id,
+                  "metadata" => %{}
+                }
+              ],
+              "first_id" => message_id_2,
+              "last_id" => message_id_2,
+              "has_more" => false
+            })
+          )
+        end
+      )
+
+      :ok = GptAgent.add_user_message(pid, "Hello 2")
+
+      assert_receive {^pid,
+                      %AssistantMessageAdded{
+                        run_id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id,
+                        message_id: ^message_id_2,
+                        content: ^message_content_2
+                      }},
+                     5_000
+
+      refute_receive {^pid,
+                      %AssistantMessageAdded{
+                        run_id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id,
+                        message_id: ^message_id_1,
+                        content: ^message_content_1
+                      }},
+                     500
+    end
+
     test "when the run makes tool calls, sends the ToolCallRequested event to the callback handler for each tool that is called",
          %{
            bypass: bypass,

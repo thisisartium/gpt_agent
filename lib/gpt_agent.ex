@@ -24,6 +24,7 @@ defmodule GptAgent do
     field :run_id, binary() | nil
     field :tool_calls, [ToolCallRequested.t()], default: []
     field :tool_outputs, [ToolCallOutputRecorded.t()], default: []
+    field :last_message_id, binary() | nil
   end
 
   defp ok(state), do: {:ok, state}
@@ -91,9 +92,26 @@ defmodule GptAgent do
 
   @impl true
   def handle_continue(:read_messages, state) do
-    {:ok, %{body: %{"object" => "list", "data" => messages}}} =
-      OpenAiClient.get("/v1/threads/#{state.thread_id}/messages")
+    url =
+      "/v1/threads/#{state.thread_id}/messages" <>
+        if state.last_message_id do
+          "?before=#{state.last_message_id}"
+        else
+          ""
+        end
 
+    {:ok, %{body: %{"object" => "list", "data" => messages}}} = OpenAiClient.get(url)
+
+    state
+    |> process_messages(messages)
+    |> noreply()
+  end
+
+  defp process_messages(state, []) do
+    state
+  end
+
+  defp process_messages(state, [%{"id" => last_message_id} | _rest] = messages) do
     for %{"role" => "assistant"} = message <- messages do
       [%{"text" => %{"value" => content}} | _rest] = message["content"]
 
@@ -106,7 +124,7 @@ defmodule GptAgent do
       })
     end
 
-    noreply(state)
+    %{state | last_message_id: last_message_id}
   end
 
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
