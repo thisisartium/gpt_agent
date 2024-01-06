@@ -8,11 +8,11 @@ defmodule GptAgentTest do
   require Eventually
 
   alias GptAgent.Events.{
+    AssistantMessageAdded,
     RunCompleted,
     RunStarted,
     ToolCallRequested,
-    UserMessageAdded,
-    AssistantMessageAdded
+    UserMessageAdded
   }
 
   alias GptAgent.Values.NonblankString

@@ -7,12 +7,12 @@ defmodule GptAgent do
   use TypedStruct
 
   alias GptAgent.Events.{
+    AssistantMessageAdded,
     RunCompleted,
     RunStarted,
     ToolCallOutputRecorded,
     ToolCallRequested,
-    UserMessageAdded,
-    AssistantMessageAdded
+    UserMessageAdded
   }
 
   alias GptAgent.Values.NonblankString
