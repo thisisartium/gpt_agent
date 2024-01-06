@@ -11,7 +11,8 @@ defmodule GptAgent do
     RunStarted,
     ToolCallOutputRecorded,
     ToolCallRequested,
-    UserMessageAdded
+    UserMessageAdded,
+    AssistantMessageAdded
   }
 
   alias GptAgent.Values.NonblankString
@@ -27,6 +28,7 @@ defmodule GptAgent do
 
   defp ok(state), do: {:ok, state}
   defp noreply(state), do: {:noreply, state}
+  defp noreply(state, next), do: {:noreply, state, next}
   defp reply(state, reply), do: {:reply, reply, state}
   defp reply(state, reply, next), do: {:reply, reply, state, next}
 
@@ -85,6 +87,26 @@ defmodule GptAgent do
       assistant_id: state.default_assistant_id
     })
     |> noreply()
+  end
+
+  @impl true
+  def handle_continue(:read_messages, state) do
+    {:ok, %{body: %{"object" => "list", "data" => messages}}} =
+      OpenAiClient.get("/v1/threads/#{state.thread_id}/messages")
+
+    for %{"role" => "assistant"} = message <- messages do
+      [%{"text" => %{"value" => content}} | _rest] = message["content"]
+
+      send_callback(state, %AssistantMessageAdded{
+        message_id: message["id"],
+        thread_id: message["thread_id"],
+        run_id: message["run_id"],
+        assistant_id: message["assistant_id"],
+        content: content
+      })
+    end
+
+    noreply(state)
   end
 
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
@@ -198,7 +220,7 @@ defmodule GptAgent do
       thread_id: state.thread_id,
       assistant_id: state.default_assistant_id
     })
-    |> noreply()
+    |> noreply({:continue, :read_messages})
   end
 
   defp handle_run_status("requires_action", id, response, state) do

@@ -11,7 +11,8 @@ defmodule GptAgentTest do
     RunCompleted,
     RunStarted,
     ToolCallRequested,
-    UserMessageAdded
+    UserMessageAdded,
+    AssistantMessageAdded
   }
 
   alias GptAgent.Values.NonblankString
@@ -24,6 +25,21 @@ defmodule GptAgentTest do
     assistant_id = UUID.uuid4()
     thread_id = UUID.uuid4()
     run_id = UUID.uuid4()
+
+    Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/messages", fn conn ->
+      conn
+      |> Plug.Conn.put_resp_content_type("application/json")
+      |> Plug.Conn.resp(
+        200,
+        Jason.encode!(%{
+          "object" => "list",
+          "data" => [],
+          "first_id" => "",
+          "last_id" => "",
+          "has_more" => false
+        })
+      )
+    end)
 
     Bypass.stub(bypass, "POST", "/v1/threads", fn conn ->
       conn
@@ -387,7 +403,6 @@ defmodule GptAgentTest do
                      5_000
     end
 
-    @tag skip: "Incomplete test implementation paused for demo"
     test "when the run is completed, publishes any messages added to the thread by the assistant",
          %{
            bypass: bypass,
@@ -396,6 +411,11 @@ defmodule GptAgentTest do
            run_id: run_id
          } do
       {:ok, pid} = GptAgent.connect(thread_id, assistant_id)
+
+      message_id = UUID.uuid4()
+
+      message_content =
+        "Artificial Intelligence, or AI, is the simulation of human intelligence processes by machines, especially computer systems."
 
       Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/messages", fn conn ->
         conn
@@ -406,30 +426,30 @@ defmodule GptAgentTest do
             "object" => "list",
             "data" => [
               %{
-                "id" => "msg_abc123",
+                "id" => message_id,
                 "object" => "thread.message",
-                "created_at" => 1_699_016_383,
-                "thread_id" => "thread_abc123",
-                "role" => "user",
+                "created_at" => 1_699_016_384,
+                "thread_id" => thread_id,
+                "role" => "assistant",
                 "content" => [
                   %{
                     "type" => "text",
                     "text" => %{
-                      "value" => "How does AI work? Explain it in simple terms.",
+                      "value" => message_content,
                       "annotations" => []
                     }
                   }
                 ],
                 "file_ids" => [],
-                "assistant_id" => nil,
-                "run_id" => nil,
+                "assistant_id" => assistant_id,
+                "run_id" => run_id,
                 "metadata" => %{}
               },
               %{
                 "id" => "msg_abc456",
                 "object" => "thread.message",
                 "created_at" => 1_699_016_383,
-                "thread_id" => "thread_abc123",
+                "thread_id" => thread_id,
                 "role" => "user",
                 "content" => [
                   %{
@@ -448,7 +468,7 @@ defmodule GptAgentTest do
                 "metadata" => %{}
               }
             ],
-            "first_id" => "msg_abc123",
+            "first_id" => message_id,
             "last_id" => "msg_abc456",
             "has_more" => false
           })
@@ -458,10 +478,12 @@ defmodule GptAgentTest do
       :ok = GptAgent.add_user_message(pid, "Hello")
 
       assert_receive {^pid,
-                      %RunCompleted{
-                        id: ^run_id,
+                      %AssistantMessageAdded{
+                        run_id: ^run_id,
                         thread_id: ^thread_id,
-                        assistant_id: ^assistant_id
+                        assistant_id: ^assistant_id,
+                        message_id: ^message_id,
+                        content: ^message_content
                       }},
                      5_000
     end
