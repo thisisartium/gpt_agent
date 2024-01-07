@@ -268,6 +268,10 @@ defmodule GptAgent do
               {:ok, binary()} | {:error, :invalid_tool_call_id}
 
   defmodule Impl do
+    @moduledoc """
+    Provides the implementation of the GptAgent public API
+    """
+
     @doc """
     Creates a new thread
     """
