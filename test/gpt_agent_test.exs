@@ -19,7 +19,6 @@ defmodule GptAgentTest do
 
   setup _context do
     bypass = Bypass.open()
-
     Application.put_env(:open_ai_client, :base_url, "http://localhost:#{bypass.port}")
 
     assistant_id = UUID.uuid4()
