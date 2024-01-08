@@ -40,7 +40,7 @@ Replace `your-openai-api-key` with your actual OpenAI API key and
 You can also configure the logger level in the config file:
 
 ```elixir
-config :gpt_agent, :log_level :warning
+config :gpt_agent, :log_level, :warning
 ```
 
 This will set the logging level to `:warning`, which is the recommended level
