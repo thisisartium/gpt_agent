@@ -1,8 +1,8 @@
 # GptAgent
 
-GptAgent is an Elixir-based service that provides a conversational agent interface
-using the OpenAI GPT models. It allows for the integration of GPT-powered
-conversations within various platforms and services.
+GptAgent is an Elixir-based service that provides a conversational agent
+interface using the OpenAI GPT models. It allows for the integration of
+GPT-powered conversations within various platforms and services.
 
 ## Installation
 
@@ -17,9 +17,36 @@ def deps do
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/gpt_agent>.
+Documentation can be generated with
+[ExDoc](https://github.com/elixir-lang/ex_doc) and published on
+[HexDocs](https://hexdocs.pm). Once published, the docs can be found at
+<https://hexdocs.pm/gpt_agent>.
+
+## Configuration
+
+To configure the GptAgent, you need to set the following environment variables
+in your config file:
+
+```elixir
+config :open_ai_client, :base_url, System.get_env("OPENAI_BASE_URL") || "https://api.openai.com"
+config :open_ai_client, :openai_api_key, System.get_env("OPENAI_API_KEY") || raise("OPENAI_API_KEY is not set")
+config :open_ai_client, :openai_organization_id, System.get_env("OPENAI_ORGANIZATION_ID")
+config :gpt_agent, :heartbeat_interval_ms, if(config_env() == :test, do: 1, else: 1000)
+```
+
+Replace `your-openai-api-key` with your actual OpenAI API key and
+`your-default-assistant-id` with the ID of your default assistant.
+
+You can also configure the logger level in the config file:
+
+```elixir
+config :gpt_agent, :log_level :warning
+```
+
+This will set the logging level to `:warning`, which is the recommended level
+for production. You can change it to `:debug` for more verbose logging during
+development.
+
 
 ## Usage
 
