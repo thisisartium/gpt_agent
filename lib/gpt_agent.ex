@@ -399,6 +399,7 @@ defmodule GptAgent do
       end
     end
 
+    @spec shutdown(pid()) :: :ok
     def shutdown(pid) do
       log("Shutting down GPT Agent with PID #{inspect(pid)}")
 
@@ -439,7 +440,7 @@ defmodule GptAgent do
     @doc """
     Adds a user message
     """
-    @spec add_user_message(pid(), binary()) :: {:ok, binary()} | {:error, :run_in_progress}
+    @spec add_user_message(pid(), binary()) :: :ok | {:error, :run_in_progress}
     def add_user_message(pid, message) do
       GenServer.call(pid, {:add_user_message, message})
     end
@@ -447,8 +448,7 @@ defmodule GptAgent do
     @doc """
     Submits tool output
     """
-    @spec submit_tool_output(pid(), binary(), map()) ::
-            {:ok, binary()} | {:error, :invalid_tool_call_id}
+    @spec submit_tool_output(pid(), binary(), map()) :: :ok | {:error, :invalid_tool_call_id}
     def submit_tool_output(pid, tool_call_id, tool_output) do
       GenServer.call(pid, {:submit_tool_output, tool_call_id, tool_output})
     end
