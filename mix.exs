@@ -4,7 +4,7 @@ defmodule GptAgent.MixProject do
   def project do
     [
       app: :gpt_agent,
-      version: "2.1.2",
+      version: "2.1.3",
       elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -14,13 +14,13 @@ defmodule GptAgent.MixProject do
         main: "GptAgent",
         extras: ["README.md"]
       ],
-      source_url: "https://github.com/fractaltechnologylabs/gpt_agent",
+      source_url: "https://github.com/thisisartium/gpt_agent",
       homepage_url: "https://thisisartium.com",
       package: [
         description: "A client for the OpenAI Assistants API",
         licenses: ["MIT"],
         links: %{
-          "GitHub" => "https://github.com/fractaltechnologylabs/gpt_agent",
+          "GitHub" => "https://github.com/thisisartium/gpt_agent",
           "Documentation" => "https://hexdocs.pm/gpt_agent",
           "Artium" => "https://thisisartium.com"
         }
