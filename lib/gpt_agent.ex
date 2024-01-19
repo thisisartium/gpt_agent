@@ -30,6 +30,18 @@ defmodule GptAgent do
     field :last_message_id, binary() | nil
   end
 
+  @callback create_thread() :: {:ok, binary()}
+  @callback start_link(keyword()) :: {:ok, pid()} | {:error, reason :: term()}
+  @callback connect(binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
+  @callback connect(binary(), binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
+  @callback shutdown(pid()) :: :ok
+  @callback thread_id(pid()) :: binary()
+  @callback default_assistant(pid()) :: binary()
+  @callback set_default_assistant(pid(), binary()) :: :ok
+  @callback add_user_message(pid(), binary()) :: {:ok, binary()} | {:error, :run_in_progress}
+  @callback submit_tool_output(pid(), binary(), map()) ::
+              {:ok, binary()} | {:error, :invalid_tool_call_id}
+
   defp ok(state), do: {:ok, state}
   defp noreply(state), do: {:noreply, state}
   defp noreply(state, next), do: {:noreply, state, next}
@@ -302,18 +314,6 @@ defmodule GptAgent do
     log("Will check run status in #{heartbeat_interval_ms()} ms")
     noreply(state)
   end
-
-  @callback create_thread() :: {:ok, binary()}
-  @callback start_link(keyword()) :: {:ok, pid()} | {:error, reason :: term()}
-  @callback connect(binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
-  @callback connect(binary(), binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
-  @callback shutdown(pid()) :: :ok
-  @callback thread_id(pid()) :: binary()
-  @callback default_assistant(pid()) :: binary()
-  @callback set_default_assistant(pid(), binary()) :: :ok
-  @callback add_user_message(pid(), binary()) :: {:ok, binary()} | {:error, :run_in_progress}
-  @callback submit_tool_output(pid(), binary(), map()) ::
-              {:ok, binary()} | {:error, :invalid_tool_call_id}
 
   defmodule Impl do
     @moduledoc """
