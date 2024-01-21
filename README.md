@@ -74,10 +74,16 @@ OpenAiClient.post("/v1/assistants", json: GptAgent.Assistants.MemGpt.schema())
 #=> {:ok, %Req.Response{ body: %{ "id" => "asst_1Ut1Wxnw0MQAF5G3qWcoMRIQ", ...}, ...}
 ```
 
-You can create a new thread with `{:ok, thread_id} = GptAgent.create_thread()`
+You can create a new thread with:
+```elixir
+ {:ok, thread_id} = GptAgent.create_thread()
+```
 
-Then you can start the agent with `{:ok, pid} = GptAgent.connect(thread_id,
-assistant_id)`
+Then you can start the agent with:
+
+```elixir
+{:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)`
+```
 
 This will start the agent process if one is not already running for the thread.
 We use a process registry to ensure that there is only one agent process running
