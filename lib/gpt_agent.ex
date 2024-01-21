@@ -30,10 +30,16 @@ defmodule GptAgent do
     field :last_message_id, binary() | nil
   end
 
+  @type thread_id() :: binary()
+  @type assistant_id() :: binary()
+
+  @type connect_opt() ::
+          {:subscribe, boolean()} | {:thread_id, thread_id()} | {:assistant_id, assistant_id()}
+  @type connect_opts() :: list(connect_opt())
+
   @callback create_thread() :: {:ok, binary()}
   @callback start_link(keyword()) :: {:ok, pid()} | {:error, reason :: term()}
-  @callback connect(binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
-  @callback connect(binary(), binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
+  @callback connect(connect_opts()) :: {:ok, pid()} | {:error, :invalid_thread_id}
   @callback shutdown(pid()) :: :ok
   @callback thread_id(pid()) :: binary()
   @callback default_assistant(pid()) :: binary()
@@ -349,42 +355,82 @@ defmodule GptAgent do
     @doc """
     Connects to the GPT Agent
     """
-    @spec connect(binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
-    def connect(thread_id) do
-      log("Connecting to thread ID #{inspect(thread_id)}")
+    @spec connect(GptAgent.connect_opts()) :: {:ok, pid()} | {:error, :invalid_thread_id}
+    def connect(opts) when is_list(opts) do
+      opts = validate_and_convert_opts(opts)
 
-      case Registry.lookup(GptAgent.Registry, thread_id) do
+      opts
+      |> connect_to_new_or_existing_agent()
+      |> maybe_set_default_assistant_id(opts)
+      |> maybe_subscribe(opts)
+    end
+
+    defp connect_to_new_or_existing_agent(opts) do
+      log("Connecting to thread ID #{inspect(opts.thread_id)}")
+
+      case Registry.lookup(GptAgent.Registry, opts.thread_id) do
         [{pid, :gpt_agent}] ->
-          log("Found existing GPT Agent with PID #{inspect(pid)}")
-          Phoenix.PubSub.subscribe(GptAgent.PubSub, "gpt_agent:#{thread_id}")
-          {:ok, pid}
+          handle_existing_agent(pid)
 
         [] ->
-          log("No existing GPT Agent found, starting new one")
-
-          case OpenAiClient.get("/v1/threads/#{thread_id}") do
-            {:ok, %{status: 404}} ->
-              log("Thread ID #{inspect(thread_id)} not found")
-              {:error, :invalid_thread_id}
-
-            {:ok, _} ->
-              log("Thread ID #{inspect(thread_id)} found")
-              Phoenix.PubSub.subscribe(GptAgent.PubSub, "gpt_agent:#{thread_id}")
-
-              DynamicSupervisor.start_child(
-                GptAgent.Supervisor,
-                {GptAgent, [thread_id: thread_id]}
-              )
-              |> tap(&log("Started GPT Agent with result #{inspect(&1)}"))
-          end
+          handle_no_existing_agent(opts.thread_id)
       end
     end
 
-    @doc """
-    Connects to the GPT Agent and sets the default assistant
-    """
-    @spec connect(binary(), binary()) :: {:ok, pid()} | {:error, :invalid_thread_id}
-    def connect(thread_id, assistant_id) do
+    defp validate_and_convert_opts(opts) do
+      Keyword.validate!(opts, [
+        :thread_id,
+        subscribe: true,
+        assistant_id: nil
+      ])
+      |> Enum.into(%{})
+    end
+
+    defp maybe_subscribe({:ok, _pid} = result, opts) do
+      if opts.subscribe do
+        Phoenix.PubSub.subscribe(GptAgent.PubSub, "gpt_agent:#{opts.thread_id}")
+      end
+
+      result
+    end
+
+    defp maybe_subscribe(result, _opts), do: result
+
+    defp handle_existing_agent(pid) do
+      log("Found existing GPT Agent with PID #{inspect(pid)}")
+      {:ok, pid}
+    end
+
+    defp handle_no_existing_agent(thread_id) do
+      log("No existing GPT Agent found, starting new one")
+
+      case OpenAiClient.get("/v1/threads/#{thread_id}") do
+        {:ok, %{status: 404}} ->
+          log("Thread ID #{inspect(thread_id)} not found")
+          {:error, :invalid_thread_id}
+
+        {:ok, _} ->
+          log("Thread ID #{inspect(thread_id)} found")
+
+          DynamicSupervisor.start_child(
+            GptAgent.Supervisor,
+            {GptAgent, [thread_id: thread_id]}
+          )
+          |> tap(&log("Started GPT Agent with result #{inspect(&1)}"))
+      end
+    end
+
+    defp maybe_set_default_assistant_id({:ok, pid} = result, opts) do
+      if opts.assistant_id do
+        :ok = set_default_assistant(pid, opts.assistant_id)
+      end
+
+      result
+    end
+
+    defp maybe_set_default_assistant_id(result, _opts), do: result
+
+    def connect(thread_id, assistant_id) when is_binary(assistant_id) do
       log(
         "Connecting to thread ID #{inspect(thread_id)} and setting default assistant ID to #{inspect(assistant_id)}"
       )
