@@ -1,7 +1,7 @@
 defmodule GptAgentTest do
   @moduledoc false
 
-  use GptAgent.TestCase, async: true
+  use GptAgent.TestCase
 
   doctest GptAgent
 
@@ -142,6 +142,8 @@ defmodule GptAgentTest do
     on_exit(fn ->
       Registry.lookup(GptAgent.Registry, thread_id)
       |> Enum.each(fn {pid, :gpt_agent} ->
+        # getting the state here ensures that the agent has finished processing
+        # any messages prior to the shutdown
         GptAgent.shutdown(pid)
       end)
     end)
@@ -187,6 +189,14 @@ defmodule GptAgentTest do
       {:ok, pid2} = GptAgent.connect(thread_id: thread_id)
       assert pid1 == pid2
       GptAgent.shutdown(pid1)
+    end
+
+    test "can set a custom timeout that will shut down the GptAgent process if it is idle", %{
+      thread_id: thread_id
+    } do
+      {:ok, pid} = GptAgent.connect(thread_id: thread_id, timeout_ms: 10)
+      assert Process.alive?(pid)
+      assert_eventually(Process.alive?(pid) == false, 20)
     end
 
     test "returns {:error, :invalid_thread_id} if the thread ID is not a valid OpenAI thread ID",

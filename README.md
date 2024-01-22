@@ -110,3 +110,15 @@ You must at the very least monitor for the `ToolCallRequested` events (if your
 assistant uses tool calls), so that you can submit the results back to the run.
 To submit the results, use `GptAgent.submit_tool_output(pid, tool_call_id,
 tool_call_result_as_json)`.
+
+### Timeouts
+
+The GptAgent processes will, by default, stay running for 2 minutes, after
+which, if no additional activity has taken place, the process will shutdown
+normally. If you would like to set a different timeout value, you can pass the
+`timeout_ms` option to `GptAgent.connect/1`:
+
+```elixir
+# Shut down the process if it has not received any activity within 200ms
+{:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id, timeout_ms: 200)
+```

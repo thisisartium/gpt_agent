@@ -20,6 +20,9 @@ defmodule GptAgent do
 
   alias GptAgent.Values.NonblankString
 
+  # two minutes
+  @timeout_ms 120_000
+
   typedstruct do
     field :default_assistant_id, binary()
     field :thread_id, binary() | nil
@@ -28,6 +31,7 @@ defmodule GptAgent do
     field :tool_calls, [ToolCallRequested.t()], default: []
     field :tool_outputs, [ToolCallOutputRecorded.t()], default: []
     field :last_message_id, binary() | nil
+    field :timeout_ms, non_neg_integer(), default: @timeout_ms
   end
 
   @type thread_id() :: binary()
@@ -48,11 +52,12 @@ defmodule GptAgent do
   @callback submit_tool_output(pid(), binary(), map()) ::
               {:ok, binary()} | {:error, :invalid_tool_call_id}
 
-  defp ok(state), do: {:ok, state}
-  defp noreply(state), do: {:noreply, state}
+  defp ok(state), do: {:ok, state, state.timeout_ms}
+  defp noreply(state), do: {:noreply, state, state.timeout_ms}
   defp noreply(state, next), do: {:noreply, state, next}
-  defp reply(state, reply), do: {:reply, reply, state}
+  defp reply(state, reply), do: {:reply, reply, state, state.timeout_ms}
   defp reply(state, reply, next), do: {:reply, reply, state, next}
+  defp stop(state), do: {:stop, :normal, state}
 
   defp log(message, level \\ :debug),
     do: Logger.log(level, "[GptAgent (#{inspect(self())})] " <> message)
@@ -166,7 +171,7 @@ defmodule GptAgent do
   def handle_call(:shutdown, _caller, state) do
     log("Shutting down")
     Registry.unregister(GptAgent.Registry, state.thread_id)
-    ok(state)
+    stop(state)
   end
 
   @impl true
@@ -270,6 +275,19 @@ defmodule GptAgent do
   defp possibly_send_outputs_to_openai(state), do: state
 
   @impl true
+  def handle_info(:timeout, state) do
+    log("Timeout Received")
+
+    if state.running? do
+      log("Run in progress, checking run status")
+      noreply(state, {:continue, {:check_run_status, state.run_id}})
+    else
+      log("Shutting down.")
+      stop(state)
+    end
+  end
+
+  @impl true
   def handle_info({:check_run_status, id}, state) do
     log("Checking run status for run ID #{inspect(id)}")
 
@@ -344,9 +362,7 @@ defmodule GptAgent do
       {:ok, thread_id}
     end
 
-    @doc """
-    Starts the GPT Agent
-    """
+    @doc false
     @spec start_link(keyword()) :: {:ok, pid()} | {:error, reason :: term()}
     def start_link(init_arg) do
       GenServer.start_link(GptAgent, init_arg)
@@ -373,7 +389,7 @@ defmodule GptAgent do
           handle_existing_agent(pid)
 
         [] ->
-          handle_no_existing_agent(opts.thread_id)
+          handle_no_existing_agent(opts.thread_id, opts.timeout_ms)
       end
     end
 
@@ -381,7 +397,8 @@ defmodule GptAgent do
       Keyword.validate!(opts, [
         :thread_id,
         subscribe: true,
-        assistant_id: nil
+        assistant_id: nil,
+        timeout_ms: nil
       ])
       |> Enum.into(%{})
     end
@@ -401,8 +418,16 @@ defmodule GptAgent do
       {:ok, pid}
     end
 
-    defp handle_no_existing_agent(thread_id) do
+    defp handle_no_existing_agent(thread_id, timeout_ms) do
       log("No existing GPT Agent found, starting new one")
+
+      timeout_opt =
+        if timeout_ms do
+          log("Setting GPT Agent timeout to #{timeout_ms}ms")
+          [timeout_ms: timeout_ms]
+        else
+          []
+        end
 
       case OpenAiClient.get("/v1/threads/#{thread_id}") do
         {:ok, %{status: 404}} ->
@@ -414,7 +439,7 @@ defmodule GptAgent do
 
           DynamicSupervisor.start_child(
             GptAgent.Supervisor,
-            {GptAgent, [thread_id: thread_id]}
+            {GptAgent, [{:thread_id, thread_id} | timeout_opt]}
           )
           |> tap(&log("Started GPT Agent with result #{inspect(&1)}"))
       end
