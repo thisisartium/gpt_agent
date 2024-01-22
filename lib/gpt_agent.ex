@@ -152,10 +152,12 @@ defmodule GptAgent do
           assistant_id: message["assistant_id"],
           content: content
         })
-      end
 
-      log("Updating last message ID to #{message["id"]}")
-      %{state | last_message_id: message["id"]}
+        log("Updating last message ID to #{message["id"]}")
+        %{state | last_message_id: message["id"]}
+      else
+        state
+      end
     end)
   end
 
