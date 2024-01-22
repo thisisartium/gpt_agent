@@ -398,6 +398,7 @@ defmodule GptAgent do
         :thread_id,
         subscribe: true,
         assistant_id: nil,
+        last_message_id: nil,
         timeout_ms: nil
       ])
       |> Enum.into(%{})
