@@ -437,10 +437,13 @@ defmodule GptAgent do
         {:ok, _} ->
           log("Thread ID #{inspect(thread_id)} found")
 
-          DynamicSupervisor.start_child(
-            GptAgent.Supervisor,
-            {GptAgent, [{:thread_id, thread_id} | timeout_opt]}
-          )
+          child_spec = %{
+            id: thread_id,
+            start: {__MODULE__, :start_link, [[{:thread_id, thread_id} | timeout_opt]]},
+            restart: :temporary
+          }
+
+          DynamicSupervisor.start_child(GptAgent.Supervisor, child_spec)
           |> tap(&log("Started GPT Agent with result #{inspect(&1)}"))
       end
     end
