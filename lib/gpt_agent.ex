@@ -110,11 +110,13 @@ defmodule GptAgent do
     state
     |> Map.put(:running?, true)
     |> Map.put(:run_id, id)
-    |> publish_event(%RunStarted{
-      id: id,
-      thread_id: state.thread_id,
-      assistant_id: state.default_assistant_id
-    })
+    |> publish_event(
+      RunStarted.new!(
+        id: id,
+        thread_id: state.thread_id,
+        assistant_id: state.default_assistant_id
+      )
+    )
     |> noreply()
   end
 
@@ -306,11 +308,13 @@ defmodule GptAgent do
 
     state
     |> Map.put(:running?, false)
-    |> publish_event(%RunCompleted{
-      id: id,
-      thread_id: state.thread_id,
-      assistant_id: state.default_assistant_id
-    })
+    |> publish_event(
+      RunCompleted.new!(
+        id: id,
+        thread_id: state.thread_id,
+        assistant_id: state.default_assistant_id
+      )
+    )
     |> noreply({:continue, :read_messages})
   end
 

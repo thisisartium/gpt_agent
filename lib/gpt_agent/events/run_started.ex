@@ -2,11 +2,13 @@ defmodule GptAgent.Events.RunStarted do
   @moduledoc """
   An OpenAI Assistants run was started
   """
-  use TypedStruct
 
-  typedstruct do
-    field :id, binary(), enforce: true
-    field :thread_id, binary(), enforce: true
-    field :assistant_id, binary(), enforce: true
+  use GptAgent.Types
+  alias GptAgent.Types
+
+  typedstruct enforce: true do
+    field :id, Types.run_id()
+    field :thread_id, Types.thread_id()
+    field :assistant_id, Types.assistant_id()
   end
 end
