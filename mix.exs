@@ -24,7 +24,8 @@ defmodule GptAgent.MixProject do
           "Documentation" => "https://hexdocs.pm/gpt_agent",
           "Artium" => "https://thisisartium.com"
         }
-      ]
+      ],
+      compilers: [:domo_compiler | Mix.compilers()]
     ]
   end
 
@@ -46,8 +47,8 @@ defmodule GptAgent.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
       {:doctor, "~> 0.21", only: :dev, runtime: false},
+      {:domo, "~> 1.5"},
       {:eventually, "~> 1.1", only: :test},
-      {:ex_check, "~> 0.15", only: :dev, runtime: false},
       {:ex_doc, "~> 0.30", only: [:dev, :test], runtime: false},
       {:faker, "0.17.0", only: :test},
       {:jason, "~> 1.2"},
@@ -70,7 +71,16 @@ defmodule GptAgent.MixProject do
       sobelow: ["sobelow --config"],
       dialyzer: ["dialyzer --list-unused-filters"],
       credo: ["credo --strict"],
-      check_formatting: ["format --check-formatted"]
+      check_formatting: ["format --check-formatted"],
+      check: [
+        "check_formatting",
+        "docs --raise",
+        "credo --strict",
+        "doctor --raise",
+        "dialyzer",
+        "deps.audit --raise",
+        "deps.unlock --check-unused"
+      ]
     ]
   end
 end

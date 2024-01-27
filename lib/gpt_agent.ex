@@ -18,8 +18,6 @@ defmodule GptAgent do
     UserMessageAdded
   }
 
-  alias GptAgent.Values.NonblankString
-
   # two minutes
   @timeout_ms 120_000
 
@@ -200,17 +198,18 @@ defmodule GptAgent do
   @impl true
   def handle_call({:add_user_message, message}, _caller, state) do
     log("Adding user message #{inspect(message)}")
-    {:ok, message} = NonblankString.new(message)
 
     {:ok, %{body: %{"id" => id}}} =
       OpenAiClient.post("/v1/threads/#{state.thread_id}/messages", json: message)
 
     state
-    |> publish_event(%UserMessageAdded{
-      id: id,
-      thread_id: state.thread_id,
-      content: message
-    })
+    |> publish_event(
+      UserMessageAdded.new!(
+        id: id,
+        thread_id: state.thread_id,
+        content: message
+      )
+    )
     |> reply(:ok, {:continue, :run})
   end
 

@@ -15,8 +15,6 @@ defmodule GptAgentTest do
     UserMessageAdded
   }
 
-  alias GptAgent.Values.NonblankString
-
   setup _context do
     bypass = Bypass.open()
     Application.put_env(:open_ai_client, :base_url, "http://localhost:#{bypass.port}")
@@ -318,11 +316,11 @@ defmodule GptAgentTest do
                       %UserMessageAdded{
                         id: ^user_message_id,
                         thread_id: ^thread_id,
-                        content: %NonblankString{} = content
+                        content: content
                       }},
                      5_000
 
-      assert content.value == message_content
+      assert content == message_content
     end
 
     test "creates a run against the thread and the assistant via the OpenAI API", %{

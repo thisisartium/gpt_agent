@@ -5,9 +5,9 @@ defmodule GptAgent.Values.NonblankString do
 
   use GptAgent.Value
 
-  type String.t()
+  type(String.t())
 
-  validate_with fn
+  validate_with(fn
     value when is_binary(value) ->
       case String.trim(value) do
         "" -> {:error, "must be a nonblank string"}
@@ -16,7 +16,7 @@ defmodule GptAgent.Values.NonblankString do
 
     _ ->
       {:error, "must be a nonblank string"}
-  end
+  end)
 
   defimpl Jason.Encoder do
     def encode(%{value: value}, opts) do

@@ -2,7 +2,10 @@ import Config
 
 case config_env() do
   :dev ->
-    config :mix_test_interactive, clear: true
+    config :mix_test_interactive,
+      clear: true,
+      exclude: [~r{priv/repo/migrations/.*}, ~r{_build/.*}, ~r{.elixir_ls/.*}]
+
     config :logger, level: :debug
 
   :test ->
