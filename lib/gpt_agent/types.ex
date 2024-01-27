@@ -46,7 +46,7 @@ defmodule GptAgent.Types do
   @doc """
   Validates metadata according to OpenAI documentation
   """
-  @spec validate_message_metadata(message_metadata()) :: Types.result(String.t())
+  @spec validate_message_metadata(message_metadata()) :: result(String.t())
   def validate_message_metadata(%{} = metadata) do
     if map_size(metadata) > 16 do
       {:error, "must have 16 or fewer keys"}
