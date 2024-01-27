@@ -4,10 +4,12 @@ defmodule GptAgent do
   """
 
   use GenServer
-  use TypedStruct
+  use GptAgent.Types
   use Knigge, otp_app: :gpt_agent, default: __MODULE__.Impl
 
   require Logger
+
+  alias GptAgent.Types
 
   alias GptAgent.Events.{
     AssistantMessageAdded,
@@ -22,45 +24,44 @@ defmodule GptAgent do
   @timeout_ms 120_000
 
   typedstruct do
-    field :default_assistant_id, binary()
-    field :thread_id, binary() | nil
+    field :default_assistant_id, Types.assistant_id()
+    field :thread_id, Types.thread_id() | nil
     field :running?, boolean(), default: false
-    field :run_id, binary() | nil
+    field :run_id, Types.run_id() | nil
     field :tool_calls, [ToolCallRequested.t()], default: []
     field :tool_outputs, [ToolCallOutputRecorded.t()], default: []
-    field :last_message_id, binary() | nil
+    field :last_message_id, Types.message_id() | nil
     field :timeout_ms, non_neg_integer(), default: @timeout_ms
   end
 
-  @type thread_id() :: binary()
-  @type assistant_id() :: binary()
-
   @type connect_opt() ::
-          {:subscribe, boolean()} | {:thread_id, thread_id()} | {:assistant_id, assistant_id()}
+          {:subscribe, boolean()}
+          | {:thread_id, Types.thread_id()}
+          | {:assistant_id, Types.assistant_id()}
   @type connect_opts() :: list(connect_opt())
 
-  @callback create_thread() :: {:ok, binary()}
-  @callback start_link(keyword()) :: {:ok, pid()} | {:error, reason :: term()}
-  @callback connect(connect_opts()) :: {:ok, pid()} | {:error, :invalid_thread_id}
-  @callback shutdown(pid()) :: :ok
-  @callback thread_id(pid()) :: binary()
-  @callback default_assistant(pid()) :: binary()
-  @callback set_default_assistant(pid(), binary()) :: :ok
-  @callback add_user_message(pid(), binary()) :: {:ok, binary()} | {:error, :run_in_progress}
-  @callback submit_tool_output(pid(), binary(), map()) ::
-              {:ok, binary()} | {:error, :invalid_tool_call_id}
+  @callback create_thread() :: {:ok, Types.thread_id()}
+  @callback start_link(keyword()) :: Types.result(pid(), term())
+  @callback connect(connect_opts()) :: Types.result(pid(), :invalid_thread_id)
+  @callback shutdown(pid()) :: Types.success()
+  @callback thread_id(pid()) :: Types.thread_id()
+  @callback default_assistant(pid()) :: Types.assistant_id()
+  @callback set_default_assistant(pid(), Types.assistant_id()) :: Types.success()
+  @callback add_user_message(pid(), Types.nonblank_string()) :: Types.result(:run_in_progress)
+  @callback submit_tool_output(pid(), Types.tool_name(), Types.tool_output()) ::
+              Types.result(:invalid_tool_call_id)
 
-  defp ok(state), do: {:ok, state, state.timeout_ms}
-  defp noreply(state), do: {:noreply, state, state.timeout_ms}
-  defp noreply(state, next), do: {:noreply, state, next}
-  defp reply(state, reply), do: {:reply, reply, state, state.timeout_ms}
-  defp reply(state, reply, next), do: {:reply, reply, state, next}
-  defp stop(state), do: {:stop, :normal, state}
+  defp ok(%__MODULE__{} = state), do: {:ok, state, state.timeout_ms}
+  defp noreply(%__MODULE__{} = state), do: {:noreply, state, state.timeout_ms}
+  defp noreply(%__MODULE__{} = state, next), do: {:noreply, state, next}
+  defp reply(%__MODULE__{} = state, reply), do: {:reply, reply, state, state.timeout_ms}
+  defp reply(%__MODULE__{} = state, reply, next), do: {:reply, reply, state, next}
+  defp stop(%__MODULE__{} = state), do: {:stop, :normal, state}
 
-  defp log(message, level \\ :debug),
+  defp log(message, level \\ :debug) when is_binary(message),
     do: Logger.log(level, "[GptAgent (#{inspect(self())})] " <> message)
 
-  defp publish_event(state, callback) do
+  defp publish_event(%__MODULE__{} = state, callback) do
     channel = "gpt_agent:#{state.thread_id}"
     log("Publishing event on channel #{channel}: #{inspect(callback)}")
 
@@ -79,7 +80,7 @@ defmodule GptAgent do
     |> ok()
   end
 
-  defp register(state) do
+  defp register(%__MODULE__{} = state) do
     case state.thread_id do
       nil ->
         state
@@ -94,7 +95,7 @@ defmodule GptAgent do
   end
 
   @impl true
-  def handle_continue(:run, state) do
+  def handle_continue(:run, %__MODULE__{} = state) do
     log("Starting run")
 
     {:ok, %{body: %{"id" => id}}} =
@@ -121,7 +122,7 @@ defmodule GptAgent do
   end
 
   @impl true
-  def handle_continue(:read_messages, state) do
+  def handle_continue(:read_messages, %__MODULE__{} = state) do
     url =
       "/v1/threads/#{state.thread_id}/messages?order=asc" <>
         if state.last_message_id do
@@ -138,7 +139,7 @@ defmodule GptAgent do
     |> noreply()
   end
 
-  defp process_messages(state, messages) do
+  defp process_messages(%__MODULE__{} = state, messages) do
     log("Processing messages: #{inspect(messages)}")
 
     Enum.reduce(messages, state, fn message, state ->
@@ -167,13 +168,13 @@ defmodule GptAgent do
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
 
   @impl true
-  def handle_cast({:set_default_assistant_id, assistant_id}, state) do
+  def handle_cast({:set_default_assistant_id, assistant_id}, %__MODULE__{} = state) do
     log("Setting default assistant ID to #{assistant_id}")
     {:noreply, %{state | default_assistant_id: assistant_id}}
   end
 
   @impl true
-  def handle_call(:shutdown, _caller, state) do
+  def handle_call(:shutdown, _caller, %__MODULE__{} = state) do
     log("Shutting down")
     Registry.unregister(GptAgent.Registry, state.thread_id)
     stop(state)
@@ -201,7 +202,7 @@ defmodule GptAgent do
   end
 
   @impl true
-  def handle_call({:add_user_message, message}, _caller, state) do
+  def handle_call({:add_user_message, message}, _caller, %__MODULE__{} = state) do
     log("Adding user message #{inspect(message)}")
 
     {:ok, %{body: %{"id" => id}}} =
@@ -232,7 +233,11 @@ defmodule GptAgent do
   end
 
   @impl true
-  def handle_call({:submit_tool_output, tool_call_id, tool_output}, _caller, state) do
+  def handle_call(
+        {:submit_tool_output, tool_call_id, tool_output},
+        _caller,
+        %__MODULE__{} = state
+      ) do
     log("Submitting tool output #{inspect(tool_output)}")
 
     case Enum.find_index(state.tool_calls, fn %ToolCallRequested{id: id} -> id == tool_call_id end) do
@@ -265,7 +270,7 @@ defmodule GptAgent do
   end
 
   defp possibly_send_outputs_to_openai(
-         %{running?: true, tool_calls: [], tool_outputs: [_ | _]} = state
+         %__MODULE__{running?: true, tool_calls: [], tool_outputs: [_ | _]} = state
        ) do
     log("Sending tool outputs to OpenAI")
 
@@ -279,10 +284,10 @@ defmodule GptAgent do
     %{state | tool_outputs: []}
   end
 
-  defp possibly_send_outputs_to_openai(state), do: state
+  defp possibly_send_outputs_to_openai(%__MODULE__{} = state), do: state
 
   @impl true
-  def handle_info(:timeout, state) do
+  def handle_info(:timeout, %__MODULE__{} = state) do
     log("Timeout Received")
 
     if state.running? do
@@ -295,7 +300,7 @@ defmodule GptAgent do
   end
 
   @impl true
-  def handle_info({:check_run_status, id}, state) do
+  def handle_info({:check_run_status, id}, %__MODULE__{} = state) do
     log("Checking run status for run ID #{inspect(id)}")
 
     {:ok, %{body: %{"status" => status} = response}} =
@@ -304,7 +309,7 @@ defmodule GptAgent do
     handle_run_status(status, id, response, state)
   end
 
-  defp handle_run_status("completed", id, _response, state) do
+  defp handle_run_status("completed", id, _response, %__MODULE__{} = state) do
     log("Run ID #{inspect(id)} completed")
 
     state
@@ -319,7 +324,7 @@ defmodule GptAgent do
     |> noreply({:continue, :read_messages})
   end
 
-  defp handle_run_status("requires_action", id, response, state) do
+  defp handle_run_status("requires_action", id, response, %__MODULE__{} = state) do
     log("Run ID #{inspect(id)} requires action")
     %{"required_action" => %{"submit_tool_outputs" => %{"tool_calls" => tool_calls}}} = response
     log("Tool calls: #{inspect(tool_calls)}")
@@ -342,7 +347,7 @@ defmodule GptAgent do
     |> noreply()
   end
 
-  defp handle_run_status(_status, id, _response, state) do
+  defp handle_run_status(_status, id, _response, %__MODULE__{} = state) do
     log("Run ID #{inspect(id)} not completed")
     Process.send_after(self(), {:check_run_status, id}, heartbeat_interval_ms())
     log("Will check run status in #{heartbeat_interval_ms()} ms")
@@ -354,13 +359,12 @@ defmodule GptAgent do
     Provides the implementation of the GptAgent public API
     """
 
-    defp log(message, level \\ :debug),
+    @behaviour GptAgent
+
+    defp log(message, level \\ :debug) when is_binary(message),
       do: Logger.log(level, "[GptAgent (#{inspect(self())})] " <> message)
 
-    @doc """
-    Creates a new thread
-    """
-    @spec create_thread() :: {:ok, binary()}
+    @impl true
     def create_thread do
       log("Creating thread")
 
@@ -372,16 +376,12 @@ defmodule GptAgent do
       {:ok, thread_id}
     end
 
-    @doc false
-    @spec start_link(keyword()) :: {:ok, pid()} | {:error, reason :: term()}
+    @impl true
     def start_link(init_arg) do
       GenServer.start_link(GptAgent, init_arg)
     end
 
-    @doc """
-    Connects to the GPT Agent
-    """
-    @spec connect(GptAgent.connect_opts()) :: {:ok, pid()} | {:error, :invalid_thread_id}
+    @impl true
     def connect(opts) when is_list(opts) do
       opts = validate_and_convert_opts(opts)
 
@@ -469,22 +469,7 @@ defmodule GptAgent do
 
     defp maybe_set_default_assistant_id(result, _opts), do: result
 
-    def connect(thread_id, assistant_id) when is_binary(assistant_id) do
-      log(
-        "Connecting to thread ID #{inspect(thread_id)} and setting default assistant ID to #{inspect(assistant_id)}"
-      )
-
-      case connect(thread_id) do
-        {:ok, pid} ->
-          :ok = set_default_assistant(pid, assistant_id)
-          {:ok, pid}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    end
-
-    @spec shutdown(pid()) :: :ok
+    @impl true
     def shutdown(pid) do
       log("Shutting down GPT Agent with PID #{inspect(pid)}")
 
@@ -498,42 +483,27 @@ defmodule GptAgent do
       :ok
     end
 
-    @doc """
-    Returns the thread ID
-    """
-    @spec thread_id(pid()) :: binary()
+    @impl true
     def thread_id(pid) do
       GenServer.call(pid, :thread_id)
     end
 
-    @doc """
-    Returns the default assistant
-    """
-    @spec default_assistant(pid()) :: binary()
+    @impl true
     def default_assistant(pid) do
       GenServer.call(pid, :default_assistant_id)
     end
 
-    @doc """
-    Sets the default assistant
-    """
-    @spec set_default_assistant(pid(), binary()) :: :ok
+    @impl true
     def set_default_assistant(pid, assistant_id) do
       GenServer.cast(pid, {:set_default_assistant_id, assistant_id})
     end
 
-    @doc """
-    Adds a user message
-    """
-    @spec add_user_message(pid(), binary()) :: :ok | {:error, :run_in_progress}
+    @impl true
     def add_user_message(pid, message) do
       GenServer.call(pid, {:add_user_message, message})
     end
 
-    @doc """
-    Submits tool output
-    """
-    @spec submit_tool_output(pid(), binary(), map()) :: :ok | {:error, :invalid_tool_call_id}
+    @impl true
     def submit_tool_output(pid, tool_call_id, tool_output) do
       GenServer.call(pid, {:submit_tool_output, tool_call_id, tool_output})
     end
