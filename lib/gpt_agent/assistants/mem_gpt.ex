@@ -7,7 +7,7 @@ defmodule GptAgent.Assistants.MemGpt do
 
   schema(
     # N.B. This is not a real ID. You would need to replace this with your assistant's ID.
-    id: "asst_paSpVSim6b0F4kiUNjbIABC2",
+    id: Application.get_env(:gpt_agent, :mem_gpt_id),
     name: "MemGpt",
     description: "Memory-enhanced GPT Assistant",
     model: "gpt-4-1106-preview",

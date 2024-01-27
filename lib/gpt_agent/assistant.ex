@@ -38,9 +38,22 @@ defmodule GptAgent.Assistant do
   just a bit of syntactic sugar.
   """
   defmacro schema(params) do
+    {id, params} = Keyword.pop(params, :id)
+
     quote do
+      def assistant_id do
+        unquote(id)
+      end
+
       def schema do
-        GptAgent.Assistant.new!(unquote(params))
+        unquote(params)
+        |> Enum.into(%{})
+        |> Map.put(:id, assistant_id())
+        |> GptAgent.Assistant.new!()
+      end
+
+      def publish do
+        OpenAiClient.post("/v1/assistants/#{assistant_id()}", json: schema())
       end
     end
   end
@@ -48,7 +61,6 @@ defmodule GptAgent.Assistant do
   defimpl Jason.Encoder do
     def encode(assistant, opts) do
       map = %{
-        id: assistant.id,
         name: assistant.name,
         description: assistant.description,
         model: assistant.model,
