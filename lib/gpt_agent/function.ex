@@ -40,7 +40,8 @@ defmodule GptAgent.Function do
               name: name,
               description: description,
               type: type,
-              enum: enum
+              enum: enum,
+              properties: properties
             },
             opts
           ) do
@@ -51,23 +52,25 @@ defmodule GptAgent.Function do
         }
 
         map = if enum != nil, do: Map.put(map, :enum, enum), else: map
-        map = encode_object_properties(map)
+        map = encode_object_properties(map, properties)
         Jason.Encoder.encode(map, opts)
       end
 
-      defp encode_object_properties(%{type: :object} = map) do
+      defp encode_object_properties(%{type: :object} = map, properties) do
         {properties, required} =
-          Enum.reduce(map.properties, {%{}, []}, fn property, acc ->
+          Enum.reduce(properties, {%{}, []}, fn property, acc ->
             {properties, required} = acc
             properties = Map.put(properties, property.name, property)
             required = if property.required, do: [property.name | required], else: required
             {properties, required}
           end)
 
-        %{map | properties: properties, required: required}
+        map
+        |> Map.put(:properties, properties)
+        |> Map.put(:required, required)
       end
 
-      defp encode_object_properties(map), do: map
+      defp encode_object_properties(map, _properties), do: map
     end
   end
 
