@@ -11,6 +11,8 @@ defmodule GptAgent do
 
   alias GptAgent.Types
 
+  alias Types.UserMessage
+
   alias GptAgent.Events.{
     AssistantMessageAdded,
     RunCompleted,
@@ -200,7 +202,7 @@ defmodule GptAgent do
   end
 
   @impl true
-  def handle_call({:add_user_message, message}, _caller, %__MODULE__{} = state) do
+  def handle_call({:add_user_message, %UserMessage{} = message}, _caller, %__MODULE__{} = state) do
     log("Adding user message #{inspect(message)}")
 
     {:ok, %{body: %{"id" => id}}} =
@@ -473,7 +475,7 @@ defmodule GptAgent do
 
     @impl true
     def add_user_message(pid, message) do
-      GenServer.call(pid, {:add_user_message, message})
+      GenServer.call(pid, {:add_user_message, %UserMessage{content: message}})
     end
 
     @impl true

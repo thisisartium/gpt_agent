@@ -1,7 +1,7 @@
 defmodule GptAgentTest do
   @moduledoc false
 
-  use GptAgent.TestCase
+  use GptAgent.TestCase, async: true
 
   doctest GptAgent
 
@@ -14,6 +14,8 @@ defmodule GptAgentTest do
     ToolCallRequested,
     UserMessageAdded
   }
+
+  alias GptAgent.Types.UserMessage
 
   setup _context do
     bypass = Bypass.open()
@@ -196,7 +198,7 @@ defmodule GptAgentTest do
         GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id, timeout_ms: 10)
 
       assert Process.alive?(pid)
-      refute_eventually(Process.alive?(pid), 1000)
+      refute_eventually(Process.alive?(pid), 20)
     end
 
     test "returns {:error, :invalid_thread_id} if the thread ID is not a valid OpenAI thread ID",
@@ -311,7 +313,7 @@ defmodule GptAgentTest do
                       %UserMessageAdded{
                         id: ^user_message_id,
                         thread_id: ^thread_id,
-                        content: content
+                        content: %UserMessage{content: content}
                       }},
                      5_000
 

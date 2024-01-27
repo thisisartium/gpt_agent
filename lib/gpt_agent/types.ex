@@ -16,6 +16,10 @@ defmodule GptAgent.Types do
   @type message_id() :: nonblank_string()
   @type run_id() :: nonblank_string()
   @type thread_id() :: nonblank_string()
+  @type file_id() :: nonblank_string()
+
+  @type message_metadata() :: %{String.t() => Jason.Encoder.t()}
+  precond message_metadata: &validate_message_metadata/1
 
   @type tool_output() :: nonblank_string()
   @type tool_name() :: nonblank_string()
@@ -36,6 +40,26 @@ defmodule GptAgent.Types do
     case String.trim(value) do
       "" -> {:error, "must not be blank"}
       _ -> :ok
+    end
+  end
+
+  @doc """
+  Validates metadata according to OpenAI documentation
+  """
+  @spec validate_message_metadata(message_metadata()) :: Types.result(String.t())
+  def validate_message_metadata(%{} = metadata) do
+    if map_size(metadata) > 16 do
+      {:error, "must have 16 or fewer keys"}
+    else
+      :ok
+    end
+
+    if Enum.any?(metadata, fn {key, value} ->
+         String.length(key) > 64 || String.length(value) > 512
+       end) do
+      {:error, "keys must be 64 characters or fewer"}
+    else
+      :ok
     end
   end
 

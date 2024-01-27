@@ -9,6 +9,6 @@ defmodule GptAgent.Events.UserMessageAdded do
   typedstruct enforce: true do
     field :id, Types.message_id()
     field :thread_id, Types.thread_id()
-    field :content, Types.nonblank_string()
+    field :content, Types.UserMessage.t()
   end
 end
