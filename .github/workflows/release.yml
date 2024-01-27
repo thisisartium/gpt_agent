@@ -43,5 +43,4 @@ jobs:
       with:
         name: gpt_agent
         key: ${{ secrets.HEX_API_KEY }}
-        organization: artium
         tag-release: false
