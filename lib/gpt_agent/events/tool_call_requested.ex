@@ -3,13 +3,14 @@ defmodule GptAgent.Events.ToolCallRequested do
   The GPT Assistant has requested a tool call
   """
 
-  use TypedStruct
+  use GptAgent.Types
+  alias GptAgent.Types
 
-  typedstruct do
-    field :id, binary(), enforce: true
-    field :thread_id, binary(), enforce: true
-    field :run_id, binary(), enforce: true
-    field :name, String.t(), enforce: true
-    field :arguments, map(), enforce: true
+  typedstruct enforce: true do
+    field :id, Types.tool_call_id()
+    field :thread_id, Types.thread_id()
+    field :run_id, Types.run_id()
+    field :name, Types.tool_name()
+    field :arguments, Types.tool_arguments()
   end
 end

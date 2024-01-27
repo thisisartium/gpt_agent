@@ -326,13 +326,14 @@ defmodule GptAgent do
 
     tool_calls
     |> Enum.reduce(state, fn tool_call, state ->
-      tool_call = %ToolCallRequested{
-        id: tool_call["id"],
-        thread_id: state.thread_id,
-        run_id: id,
-        name: tool_call["function"]["name"],
-        arguments: Jason.decode!(tool_call["function"]["arguments"])
-      }
+      tool_call =
+        ToolCallRequested.new!(
+          id: tool_call["id"],
+          thread_id: state.thread_id,
+          run_id: id,
+          name: tool_call["function"]["name"],
+          arguments: Jason.decode!(tool_call["function"]["arguments"])
+        )
 
       state
       |> Map.put(:tool_calls, [tool_call | state.tool_calls])

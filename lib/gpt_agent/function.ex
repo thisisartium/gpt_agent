@@ -3,24 +3,36 @@ defmodule GptAgent.Function do
   Represents a function that can be called by the OpenAI GPT assistant
   """
 
-  use TypedStruct
+  use GptAgent.Types
+  alias GptAgent.Types
 
   defmodule Parameter do
     @moduledoc """
     Represents a parameter of a function that can be called by the OpenAI GPT assistant
     """
 
-    use TypedStruct
+    use GptAgent.Types
+    alias GptAgent.Types
 
-    @type type :: :string | :integer
+    @type type :: :string | :number | :integer | :object | :array | :boolean | :null
 
     typedstruct do
-      field :name, String.t(), enforce: true
-      field :description, String.t(), enforce: true
-      field :type, type(), enforce: true
+      field :name, Types.nonblank_string(), enforce: true
+      field :description, Types.nonblank_string(), enforce: true
+      field :type, type() | list(type()), enforce: true
       field :required, boolean(), default: false
-      field :enum, [binary() | number()] | nil
+      field :properties, list(t()) | nil
+      field :enum, [Types.nonblank_string() | number()] | nil
     end
+
+    precond t: &validate_parameter/1
+
+    defp validate_parameter(%Parameter{type: :object, properties: properties})
+         when is_nil(properties) or properties == [] do
+      {:error, "Object parameters must have properties"}
+    end
+
+    defp validate_parameter(%Parameter{}), do: :ok
 
     defimpl Jason.Encoder do
       def encode(
@@ -39,14 +51,29 @@ defmodule GptAgent.Function do
         }
 
         map = if enum != nil, do: Map.put(map, :enum, enum), else: map
+        map = encode_object_properties(map)
         Jason.Encoder.encode(map, opts)
       end
+
+      defp encode_object_properties(%{type: :object} = map) do
+        {properties, required} =
+          Enum.reduce(map.properties, {%{}, []}, fn property, acc ->
+            {properties, required} = acc
+            properties = Map.put(properties, property.name, property)
+            required = if property.required, do: [property.name | required], else: required
+            {properties, required}
+          end)
+
+        %{map | properties: properties, required: required}
+      end
+
+      defp encode_object_properties(map), do: map
     end
   end
 
   typedstruct do
-    field :name, String.t(), enforce: true
-    field :description, String.t(), enforce: true
+    field :name, Types.tool_name(), enforce: true
+    field :description, Types.nonblank_string(), enforce: true
     field :parameters, [Parameter.t()], default: []
   end
 

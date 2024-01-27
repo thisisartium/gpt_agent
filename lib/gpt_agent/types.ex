@@ -20,6 +20,7 @@ defmodule GptAgent.Types do
   @type tool_output() :: nonblank_string()
   @type tool_name() :: nonblank_string()
   @type tool_call_id() :: nonblank_string()
+  @type tool_arguments() :: %{String.t() => Jason.Encoder.t()}
 
   @type success() :: :ok
   @type success(t) :: {:ok, t}
