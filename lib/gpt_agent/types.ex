@@ -17,6 +17,10 @@ defmodule GptAgent.Types do
   @type run_id() :: nonblank_string()
   @type thread_id() :: nonblank_string()
 
+  @type tool_output() :: nonblank_string()
+  @type tool_name() :: nonblank_string()
+  @type tool_call_id() :: nonblank_string()
+
   @type success() :: :ok
   @type success(t) :: {:ok, t}
   @type error(t) :: {:error, t}

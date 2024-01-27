@@ -244,13 +244,14 @@ defmodule GptAgent do
         log("Tool call ID #{inspect(tool_call_id)} found at index #{inspect(index)}")
         {tool_call, tool_calls} = List.pop_at(state.tool_calls, index)
 
-        tool_output = %ToolCallOutputRecorded{
-          id: tool_call_id,
-          thread_id: state.thread_id,
-          run_id: tool_call.run_id,
-          name: tool_call.name,
-          output: Jason.encode!(tool_output)
-        }
+        tool_output =
+          ToolCallOutputRecorded.new!(
+            id: tool_call_id,
+            thread_id: state.thread_id,
+            run_id: tool_call.run_id,
+            name: tool_call.name,
+            output: Jason.encode!(tool_output)
+          )
 
         tool_outputs = [tool_output | state.tool_outputs]
 

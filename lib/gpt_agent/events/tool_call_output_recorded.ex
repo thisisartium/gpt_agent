@@ -3,14 +3,15 @@ defmodule GptAgent.Events.ToolCallOutputRecorded do
   The GPT Assistant has recorded a tool call output
   """
 
-  use TypedStruct
+  use GptAgent.Types
+  alias GptAgent.Types
 
-  typedstruct do
-    field :id, binary(), enforce: true
-    field :thread_id, binary(), enforce: true
-    field :run_id, binary(), enforce: true
-    field :name, String.t(), enforce: true
-    field :output, binary(), enforce: true
+  typedstruct enforce: true do
+    field :id, Types.tool_call_id()
+    field :thread_id, Types.thread_id()
+    field :run_id, Types.run_id()
+    field :name, Types.tool_name()
+    field :output, Types.tool_output()
   end
 
   defimpl Jason.Encoder do
