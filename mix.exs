@@ -4,7 +4,7 @@ defmodule GptAgent.MixProject do
   def project do
     [
       app: :gpt_agent,
-      version: "4.0.0",
+      version: "5.0.0",
       elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
