@@ -3,6 +3,9 @@ on:
   release:
     types: [published]
 
+env:
+  OPENAI_API_KEY: afakekeyneededfortests
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -27,6 +30,14 @@ jobs:
         restore-keys: ${{ runner.os }}-build-
     - name: Install dependencies
       run: mix deps.get
+    - name: Check version
+      run: |
+        MIX_VERSION=$(grep 'version:' mix.exs | cut -d '"' -f2)
+        TAG_VERSION=${GITHUB_REF/refs\/tags\/v/}
+        if [ "$MIX_VERSION" != "$TAG_VERSION" ]; then
+          echo "Tag version ($TAG_VERSION) does not match mix.exs version ($MIX_VERSION)"
+          exit 1
+        fi
     - name: Publish to Hex
       uses: synchronal/hex-publish-action@v3
       with:
