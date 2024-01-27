@@ -3,13 +3,14 @@ defmodule GptAgent.Events.AssistantMessageAdded do
   An OpenAI Assistants assistant message was added to a thread
   """
 
-  use TypedStruct
+  use GptAgent.Types
+  alias GptAgent.Types
 
-  typedstruct do
-    field :message_id, binary(), enforce: true
-    field :thread_id, binary(), enforce: true
-    field :run_id, binary(), enforce: true
-    field :assistant_id, binary(), enforce: true
-    field :content, String.t(), enforce: true
+  typedstruct enforce: true do
+    field :message_id, Types.message_id()
+    field :thread_id, Types.thread_id()
+    field :run_id, Types.run_id()
+    field :assistant_id, Types.assistant_id()
+    field :content, Types.nonblank_string()
   end
 end

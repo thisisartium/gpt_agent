@@ -12,9 +12,10 @@ defmodule GptAgent.Types do
   @type nonblank_string() :: String.t()
   precond nonblank_string: &validate_nonblank_string/1
 
-  @type thread_id() :: nonblank_string()
-
+  @type assistant_id() :: nonblank_string()
   @type message_id() :: nonblank_string()
+  @type run_id() :: nonblank_string()
+  @type thread_id() :: nonblank_string()
 
   @type success() :: :ok
   @type success(t) :: {:ok, t}

@@ -143,13 +143,16 @@ defmodule GptAgent do
       [%{"text" => %{"value" => content}} | _rest] = message["content"]
 
       if message["role"] == "assistant" do
-        publish_event(state, %AssistantMessageAdded{
-          message_id: message["id"],
-          thread_id: message["thread_id"],
-          run_id: message["run_id"],
-          assistant_id: message["assistant_id"],
-          content: content
-        })
+        publish_event(
+          state,
+          AssistantMessageAdded.new!(
+            message_id: message["id"],
+            thread_id: message["thread_id"],
+            run_id: message["run_id"],
+            assistant_id: message["assistant_id"],
+            content: content
+          )
+        )
 
         log("Updating last message ID to #{message["id"]}")
         %{state | last_message_id: message["id"]}
