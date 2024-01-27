@@ -173,28 +173,30 @@ defmodule GptAgentTest do
 
   describe "connect/1" do
     test "starts a GptAgent process for the given thread ID if no such process is running", %{
-      thread_id: thread_id
+      thread_id: thread_id,
+      assistant_id: assistant_id
     } do
-      assert {:ok, pid} = GptAgent.connect(thread_id: thread_id)
+      assert {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
       assert Process.alive?(pid)
-      assert {:ok, ^thread_id} = GptAgent.thread_id(pid)
-      GptAgent.shutdown(pid)
     end
 
     test "does not start a new GptAgent process for the given thread ID if one is already running",
-         %{thread_id: thread_id} do
-      {:ok, pid1} = GptAgent.connect(thread_id: thread_id)
-      {:ok, pid2} = GptAgent.connect(thread_id: thread_id)
+         %{thread_id: thread_id, assistant_id: assistant_id} do
+      {:ok, pid1} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid2} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
       assert pid1 == pid2
       GptAgent.shutdown(pid1)
     end
 
     test "can set a custom timeout that will shut down the GptAgent process if it is idle", %{
-      thread_id: thread_id
+      thread_id: thread_id,
+      assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, timeout_ms: 10)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id, timeout_ms: 10)
+
       assert Process.alive?(pid)
-      assert_eventually(Process.alive?(pid) == false, 20)
+      refute_eventually(Process.alive?(pid), 1000)
     end
 
     test "returns {:error, :invalid_thread_id} if the thread ID is not a valid OpenAI thread ID",
@@ -207,19 +209,26 @@ defmodule GptAgentTest do
         |> Plug.Conn.resp(404, "")
       end)
 
-      assert {:error, :invalid_thread_id} = GptAgent.connect(thread_id: thread_id)
+      assert {:error, :invalid_thread_id} =
+               GptAgent.connect(thread_id: thread_id, assistant_id: Faker.Lorem.word())
     end
 
-    test "subscribes to updates for the thread", %{thread_id: thread_id} do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id)
+    test "subscribes to updates for the thread", %{
+      thread_id: thread_id,
+      assistant_id: assistant_id
+    } do
+      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
       assert_receive {^pid, %UserMessageAdded{}}
     end
 
     test "does not subscribe to updates if subsribe option is set to false", %{
-      thread_id: thread_id
+      thread_id: thread_id,
+      assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, subscribe: false)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id, subscribe: false)
+
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
       refute_receive {^pid, %UserMessageAdded{}}
     end
@@ -231,42 +240,29 @@ defmodule GptAgentTest do
          } do
       assert {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
       assert Process.alive?(pid)
-      assert {:ok, ^thread_id} = GptAgent.thread_id(pid)
-      assert {:ok, ^assistant_id} = GptAgent.default_assistant(pid)
-      GptAgent.shutdown(pid)
+      assert %GptAgent{thread_id: ^thread_id, assistant_id: ^assistant_id} = :sys.get_state(pid)
     end
 
-    test "updates the default assistant id on an agent if the agent is already running",
+    test "does not update the assistant id on an agent if the agent is already running",
          %{thread_id: thread_id, assistant_id: assistant_id} do
-      {:ok, pid1} = GptAgent.connect(thread_id: thread_id, assistant_id: UUID.uuid4())
-      {:ok, pid2} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid1} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid2} = GptAgent.connect(thread_id: thread_id, assistant_id: UUID.uuid4())
       assert pid1 == pid2
-      assert {:ok, ^assistant_id} = GptAgent.default_assistant(pid1)
-      GptAgent.shutdown(pid1)
+      assert %GptAgent{assistant_id: ^assistant_id} = :sys.get_state(pid1)
     end
   end
 
   describe "shutdown/1" do
     test "shuts down the GptAgent process with the given pid", %{
-      thread_id: thread_id
+      thread_id: thread_id,
+      assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id)
+      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
       assert Process.alive?(pid)
 
       assert :ok = GptAgent.shutdown(pid)
       refute Process.alive?(pid)
       assert_eventually(Registry.lookup(GptAgent.Registry, thread_id) == [])
-    end
-  end
-
-  describe "set_default_assistant/2 and default_assistant_id/1" do
-    test "sets the default assistant ID that will be used to process user messages" do
-      {:ok, pid} = GptAgent.start_link(thread_id: UUID.uuid4())
-
-      new_assistant_id = UUID.uuid4()
-      assert :ok = GptAgent.set_default_assistant(pid, new_assistant_id)
-
-      assert GptAgent.default_assistant(pid) == {:ok, new_assistant_id}
     end
   end
 
@@ -276,8 +272,7 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id)
-      :ok = GptAgent.set_default_assistant(pid, assistant_id)
+      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
 
       user_message_id = UUID.uuid4()
       message_content = Faker.Lorem.paragraph()
@@ -328,8 +323,7 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id)
-      :ok = GptAgent.set_default_assistant(pid, assistant_id)
+      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
 
       Bypass.expect_once(bypass, "POST", "/v1/threads/#{thread_id}/runs", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)

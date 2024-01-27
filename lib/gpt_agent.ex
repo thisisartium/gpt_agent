@@ -24,8 +24,8 @@ defmodule GptAgent do
   @timeout_ms 120_000
 
   typedstruct do
-    field :default_assistant_id, Types.assistant_id()
-    field :thread_id, Types.thread_id() | nil
+    field :assistant_id, Types.assistant_id(), enforce: true
+    field :thread_id, Types.thread_id(), enforce: true
     field :running?, boolean(), default: false
     field :run_id, Types.run_id() | nil
     field :tool_calls, [ToolCallRequested.t()], default: []
@@ -41,12 +41,9 @@ defmodule GptAgent do
   @type connect_opts() :: list(connect_opt())
 
   @callback create_thread() :: {:ok, Types.thread_id()}
-  @callback start_link(keyword()) :: Types.result(pid(), term())
+  @callback start_link(t()) :: Types.result(pid(), term())
   @callback connect(connect_opts()) :: Types.result(pid(), :invalid_thread_id)
   @callback shutdown(pid()) :: Types.success()
-  @callback thread_id(pid()) :: Types.thread_id()
-  @callback default_assistant(pid()) :: Types.assistant_id()
-  @callback set_default_assistant(pid(), Types.assistant_id()) :: Types.success()
   @callback add_user_message(pid(), Types.nonblank_string()) :: Types.result(:run_in_progress)
   @callback submit_tool_output(pid(), Types.tool_name(), Types.tool_output()) ::
               Types.result(:invalid_tool_call_id)
@@ -71,11 +68,12 @@ defmodule GptAgent do
   end
 
   @impl true
-  def init(init_arg) do
-    log("Initializing with #{inspect(init_arg)}")
+  def init(%__MODULE__{} = state) do
+    ensure_type!(state)
 
-    init_arg
-    |> then(&struct!(__MODULE__, &1))
+    log("Initializing with #{inspect(state)}")
+
+    state
     |> register()
     |> ok()
   end
@@ -101,7 +99,7 @@ defmodule GptAgent do
     {:ok, %{body: %{"id" => id}}} =
       OpenAiClient.post("/v1/threads/#{state.thread_id}/runs",
         json: %{
-          "assistant_id" => state.default_assistant_id
+          "assistant_id" => state.assistant_id
         }
       )
 
@@ -115,7 +113,7 @@ defmodule GptAgent do
       RunStarted.new!(
         id: id,
         thread_id: state.thread_id,
-        assistant_id: state.default_assistant_id
+        assistant_id: state.assistant_id
       )
     )
     |> noreply()
@@ -168,9 +166,9 @@ defmodule GptAgent do
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
 
   @impl true
-  def handle_cast({:set_default_assistant_id, assistant_id}, %__MODULE__{} = state) do
+  def handle_cast({:set_assistant_id, assistant_id}, %__MODULE__{} = state) do
     log("Setting default assistant ID to #{assistant_id}")
-    {:noreply, %{state | default_assistant_id: assistant_id}}
+    {:noreply, %{state | assistant_id: assistant_id}}
   end
 
   @impl true
@@ -187,9 +185,9 @@ defmodule GptAgent do
   end
 
   @impl true
-  def handle_call(:default_assistant_id, _caller, %__MODULE__{} = state) do
-    log("Returning default assistant ID #{inspect(state.default_assistant_id)}")
-    reply(state, {:ok, state.default_assistant_id})
+  def handle_call(:assistant_id, _caller, %__MODULE__{} = state) do
+    log("Returning default assistant ID #{inspect(state.assistant_id)}")
+    reply(state, {:ok, state.assistant_id})
   end
 
   @impl true
@@ -318,7 +316,7 @@ defmodule GptAgent do
       RunCompleted.new!(
         id: id,
         thread_id: state.thread_id,
-        assistant_id: state.default_assistant_id
+        assistant_id: state.assistant_id
       )
     )
     |> noreply({:continue, :read_messages})
@@ -377,8 +375,8 @@ defmodule GptAgent do
     end
 
     @impl true
-    def start_link(init_arg) do
-      GenServer.start_link(GptAgent, init_arg)
+    def start_link(%GptAgent{} = state) do
+      GenServer.start_link(GptAgent, state)
     end
 
     @impl true
@@ -387,7 +385,6 @@ defmodule GptAgent do
 
       opts
       |> connect_to_new_or_existing_agent()
-      |> maybe_set_default_assistant_id(opts)
       |> maybe_subscribe(opts)
     end
 
@@ -399,7 +396,7 @@ defmodule GptAgent do
           handle_existing_agent(pid)
 
         [] ->
-          handle_no_existing_agent(opts.thread_id, opts.timeout_ms)
+          handle_no_existing_agent(opts.thread_id, opts.assistant_id, opts.timeout_ms)
       end
     end
 
@@ -429,16 +426,15 @@ defmodule GptAgent do
       {:ok, pid}
     end
 
-    defp handle_no_existing_agent(thread_id, timeout_ms) do
+    defp handle_no_existing_agent(thread_id, assistant_id, timeout_ms) do
       log("No existing GPT Agent found, starting new one")
 
-      timeout_opt =
-        if timeout_ms do
-          log("Setting GPT Agent timeout to #{timeout_ms}ms")
-          [timeout_ms: timeout_ms]
-        else
-          []
-        end
+      state =
+        GptAgent.new!(
+          thread_id: thread_id,
+          assistant_id: assistant_id,
+          timeout_ms: timeout_ms || default_timeout_ms()
+        )
 
       case OpenAiClient.get("/v1/threads/#{thread_id}") do
         {:ok, %{status: 404}} ->
@@ -450,7 +446,7 @@ defmodule GptAgent do
 
           child_spec = %{
             id: thread_id,
-            start: {__MODULE__, :start_link, [[{:thread_id, thread_id} | timeout_opt]]},
+            start: {__MODULE__, :start_link, [state]},
             restart: :temporary
           }
 
@@ -459,15 +455,7 @@ defmodule GptAgent do
       end
     end
 
-    defp maybe_set_default_assistant_id({:ok, pid} = result, opts) do
-      if opts.assistant_id do
-        :ok = set_default_assistant(pid, opts.assistant_id)
-      end
-
-      result
-    end
-
-    defp maybe_set_default_assistant_id(result, _opts), do: result
+    defp default_timeout_ms, do: Application.get_env(:gpt_agent, :timeout_ms, 120_000)
 
     @impl true
     def shutdown(pid) do
@@ -481,21 +469,6 @@ defmodule GptAgent do
       end
 
       :ok
-    end
-
-    @impl true
-    def thread_id(pid) do
-      GenServer.call(pid, :thread_id)
-    end
-
-    @impl true
-    def default_assistant(pid) do
-      GenServer.call(pid, :default_assistant_id)
-    end
-
-    @impl true
-    def set_default_assistant(pid, assistant_id) do
-      GenServer.cast(pid, {:set_default_assistant_id, assistant_id})
     end
 
     @impl true
