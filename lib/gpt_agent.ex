@@ -122,6 +122,17 @@ defmodule GptAgent do
   end
 
   @impl true
+  def handle_continue({:check_run_status, nil}, state) do
+    log("No run in progress, not checking run status")
+    noreply(state)
+  end
+
+  @impl true
+  def handle_continue({:check_run_status, run_id}, state) do
+    handle_info({:check_run_status, run_id}, state)
+  end
+
+  @impl true
   def handle_continue(:read_messages, %__MODULE__{} = state) do
     url =
       "/v1/threads/#{state.thread_id}/messages?order=asc" <>
