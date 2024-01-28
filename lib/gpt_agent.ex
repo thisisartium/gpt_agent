@@ -347,11 +347,19 @@ defmodule GptAgent do
     |> noreply()
   end
 
-  defp handle_run_status(_status, id, _response, %__MODULE__{} = state) do
+  defp handle_run_status(status, id, _response, %__MODULE__{} = state)
+       when status in ~w(queued in_progress) do
     log("Run ID #{inspect(id)} not completed")
     Process.send_after(self(), {:check_run_status, id}, heartbeat_interval_ms())
     log("Will check run status in #{heartbeat_interval_ms()} ms")
-    noreply(state)
+    noreply(%{state | running?: true})
+  end
+
+  defp handle_run_status(status, id, response, %__MODULE__{} = state) do
+    log("Run ID #{inspect(id)} failed with status #{inspect(status)}", :warning)
+    log("Response: #{inspect(response)}")
+    log("State: #{inspect(state)}")
+    noreply(%{state | running?: false, run_id: nil})
   end
 
   defmodule Impl do
