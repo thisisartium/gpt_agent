@@ -77,6 +77,7 @@ defmodule GptAgent do
 
     state
     |> register()
+    |> retrieve_current_run_status()
     |> ok()
   end
 
@@ -90,6 +91,22 @@ defmodule GptAgent do
 
         log("Registered in GptAgent.Registry as #{inspect(thread_id)}")
 
+        state
+    end
+  end
+
+  defp retrieve_current_run_status(%__MODULE__{} = state) do
+    {:ok, %{body: %{"object" => "list", "data" => runs}}} =
+      OpenAiClient.get("/v1/threads/#{state.thread_id}/runs?limit=1&order=desc")
+
+    case runs do
+      [%{"id" => run_id, "status" => status} | _rest]
+      when status in ~w(queued in_progress requires_action) ->
+        state
+        |> Map.put(:running?, true)
+        |> Map.put(:run_id, run_id)
+
+      _ ->
         state
     end
   end
@@ -119,6 +136,17 @@ defmodule GptAgent do
       )
     )
     |> noreply()
+  end
+
+  @impl true
+  def handle_continue({:check_run_status, nil}, state) do
+    log("No run in progress, not checking run status")
+    noreply(state)
+  end
+
+  @impl true
+  def handle_continue({:check_run_status, run_id}, state) do
+    handle_info({:check_run_status, run_id}, state)
   end
 
   @impl true
@@ -347,11 +375,19 @@ defmodule GptAgent do
     |> noreply()
   end
 
-  defp handle_run_status(_status, id, _response, %__MODULE__{} = state) do
+  defp handle_run_status(status, id, _response, %__MODULE__{} = state)
+       when status in ~w(queued in_progress) do
     log("Run ID #{inspect(id)} not completed")
     Process.send_after(self(), {:check_run_status, id}, heartbeat_interval_ms())
     log("Will check run status in #{heartbeat_interval_ms()} ms")
-    noreply(state)
+    noreply(%{state | running?: true})
+  end
+
+  defp handle_run_status(status, id, response, %__MODULE__{} = state) do
+    log("Run ID #{inspect(id)} failed with status #{inspect(status)}", :warning)
+    log("Response: #{inspect(response)}")
+    log("State: #{inspect(state)}")
+    noreply(%{state | running?: false, run_id: nil})
   end
 
   defmodule Impl do
