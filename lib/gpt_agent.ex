@@ -77,6 +77,7 @@ defmodule GptAgent do
 
     state
     |> register()
+    |> retrieve_current_run_status()
     |> ok()
   end
 
@@ -90,6 +91,22 @@ defmodule GptAgent do
 
         log("Registered in GptAgent.Registry as #{inspect(thread_id)}")
 
+        state
+    end
+  end
+
+  defp retrieve_current_run_status(%__MODULE__{} = state) do
+    {:ok, %{body: %{"object" => "list", "data" => runs}}} =
+      OpenAiClient.get("/v1/threads/#{state.thread_id}/runs?limit=1&order=desc")
+
+    case runs do
+      [%{"id" => run_id, "status" => status} | _rest]
+      when status in ~w(queued in_progress requires_action) ->
+        state
+        |> Map.put(:running?, true)
+        |> Map.put(:run_id, run_id)
+
+      _ ->
         state
     end
   end

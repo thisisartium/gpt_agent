@@ -1,7 +1,7 @@
 defmodule GptAgentTest do
   @moduledoc false
 
-  use GptAgent.TestCase, async: true
+  use GptAgent.TestCase
 
   doctest GptAgent
 
@@ -24,6 +24,26 @@ defmodule GptAgentTest do
     assistant_id = UUID.uuid4()
     thread_id = UUID.uuid4()
     run_id = UUID.uuid4()
+
+    Bypass.stub(
+      bypass,
+      "GET",
+      "/v1/threads/#{thread_id}/runs",
+      fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "object" => "list",
+            "data" => [],
+            "first_id" => "",
+            "last_id" => "",
+            "has_more" => false
+          })
+        )
+      end
+    )
 
     Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/messages", fn conn ->
       conn
@@ -251,6 +271,56 @@ defmodule GptAgentTest do
       {:ok, pid2} = GptAgent.connect(thread_id: thread_id, assistant_id: UUID.uuid4())
       assert pid1 == pid2
       assert %GptAgent{assistant_id: ^assistant_id} = :sys.get_state(pid1)
+    end
+
+    test "loads existing thread run status when connecting to thread with a run history", %{
+      thread_id: thread_id,
+      assistant_id: assistant_id,
+      bypass: bypass
+    } do
+      Bypass.expect_once(
+        bypass,
+        "GET",
+        "/v1/threads/#{thread_id}/runs",
+        fn conn ->
+          assert conn.params["order"] == "desc"
+          assert conn.params["limit"] == "1"
+
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(
+            200,
+            Jason.encode!(%{
+              object: "list",
+              data: [
+                %{
+                  "id" => "run_abc123",
+                  "object" => "thread.run",
+                  "created_at" => 1_699_075_072,
+                  "assistant_id" => assistant_id,
+                  "thread_id" => thread_id,
+                  "status" => "in_progress",
+                  "started_at" => 1_699_075_072,
+                  "expires_at" => nil,
+                  "cancelled_at" => nil,
+                  "failed_at" => nil,
+                  "completed_at" => nil,
+                  "last_error" => nil,
+                  "model" => "gpt-3.5-turbo",
+                  "instructions" => nil,
+                  "tools" => [],
+                  "file_ids" => [],
+                  "metadata" => %{},
+                  "usage" => %{}
+                }
+              ]
+            })
+          )
+        end
+      )
+
+      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      assert {:error, :run_in_progress} = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
     end
   end
 
