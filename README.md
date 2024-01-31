@@ -25,7 +25,7 @@ Documentation can be generated with
 ## Configuration
 
 To configure the GptAgent, you need to set the following environment variables
-in your config file:
+in your project's runtime config file (usually `config/runtime.exs`):
 
 ```elixir
 config :open_ai_client, :base_url, System.get_env("OPENAI_BASE_URL") || "https://api.openai.com"
@@ -34,8 +34,9 @@ config :open_ai_client, :openai_organization_id, System.get_env("OPENAI_ORGANIZA
 config :gpt_agent, :heartbeat_interval_ms, if(config_env() == :test, do: 1, else: 1000)
 ```
 
-Replace `your-openai-api-key` with your actual OpenAI API key and
-`your-default-assistant-id` with the ID of your default assistant.
+Make sure you have the `OPENAI_API_KEY` and (optionally) `OPENAI_ORGANIZATION_ID`
+system environment variable set to the correct values for your API key and OpenAI
+organization.
 
 You can also configure the logger level in the config file:
 
