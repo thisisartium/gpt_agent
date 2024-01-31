@@ -198,14 +198,24 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      assert {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      assert {:ok, pid} =
+               GptAgent.connect(
+                 thread_id: thread_id,
+                 last_message_id: nil,
+                 assistant_id: assistant_id
+               )
+
       assert Process.alive?(pid)
     end
 
     test "does not start a new GptAgent process for the given thread ID if one is already running",
          %{thread_id: thread_id, assistant_id: assistant_id} do
-      {:ok, pid1} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
-      {:ok, pid2} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid1} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      {:ok, pid2} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
       assert pid1 == pid2
       GptAgent.shutdown(pid1)
     end
@@ -215,7 +225,12 @@ defmodule GptAgentTest do
       assistant_id: assistant_id
     } do
       {:ok, pid} =
-        GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id, timeout_ms: 10)
+        GptAgent.connect(
+          thread_id: thread_id,
+          last_message_id: nil,
+          assistant_id: assistant_id,
+          timeout_ms: 10
+        )
 
       assert Process.alive?(pid)
       refute_eventually(Process.alive?(pid), 20)
@@ -232,14 +247,20 @@ defmodule GptAgentTest do
       end)
 
       assert {:error, :invalid_thread_id} =
-               GptAgent.connect(thread_id: thread_id, assistant_id: Faker.Lorem.word())
+               GptAgent.connect(
+                 thread_id: thread_id,
+                 last_message_id: nil,
+                 assistant_id: Faker.Lorem.word()
+               )
     end
 
     test "subscribes to updates for the thread", %{
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
       assert_receive {^pid, %UserMessageAdded{}}
     end
@@ -249,26 +270,25 @@ defmodule GptAgentTest do
       assistant_id: assistant_id
     } do
       {:ok, pid} =
-        GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id, subscribe: false)
+        GptAgent.connect(
+          thread_id: thread_id,
+          last_message_id: nil,
+          assistant_id: assistant_id,
+          subscribe: false
+        )
 
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
       refute_receive {^pid, %UserMessageAdded{}}
     end
 
-    test "starts a GptAgent process for the given thread ID if no such process is running and sets the default assistant ID",
-         %{
-           thread_id: thread_id,
-           assistant_id: assistant_id
-         } do
-      assert {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
-      assert Process.alive?(pid)
-      assert %GptAgent{thread_id: ^thread_id, assistant_id: ^assistant_id} = :sys.get_state(pid)
-    end
-
     test "does not update the assistant id on an agent if the agent is already running",
          %{thread_id: thread_id, assistant_id: assistant_id} do
-      {:ok, pid1} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
-      {:ok, pid2} = GptAgent.connect(thread_id: thread_id, assistant_id: UUID.uuid4())
+      {:ok, pid1} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      {:ok, pid2} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: UUID.uuid4())
+
       assert pid1 == pid2
       assert %GptAgent{assistant_id: ^assistant_id} = :sys.get_state(pid1)
     end
@@ -319,8 +339,45 @@ defmodule GptAgentTest do
         end
       )
 
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
       assert {:error, :run_in_progress} = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+    end
+
+    test "sets the last_message_id based on the passed value", %{
+      thread_id: thread_id,
+      assistant_id: assistant_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(
+          thread_id: thread_id,
+          last_message_id: "msg_abc123",
+          assistant_id: assistant_id
+        )
+
+      assert %GptAgent{last_message_id: "msg_abc123"} = :sys.get_state(pid)
+    end
+
+    test "updates the last_message_id based on the passed value", %{
+      thread_id: thread_id,
+      assistant_id: assistant_id
+    } do
+      {:ok, _pid} =
+        GptAgent.connect(
+          thread_id: thread_id,
+          last_message_id: "msg_abc123",
+          assistant_id: assistant_id
+        )
+
+      {:ok, pid} =
+        GptAgent.connect(
+          thread_id: thread_id,
+          last_message_id: "msg_abc456",
+          assistant_id: assistant_id
+        )
+
+      assert %GptAgent{last_message_id: "msg_abc456"} = :sys.get_state(pid)
     end
   end
 
@@ -329,7 +386,9 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
       assert Process.alive?(pid)
 
       assert :ok = GptAgent.shutdown(pid)
@@ -344,7 +403,8 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       user_message_id = UUID.uuid4()
       message_content = Faker.Lorem.paragraph()
@@ -395,7 +455,8 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       assistant_id: assistant_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       Bypass.expect_once(bypass, "POST", "/v1/threads/#{thread_id}/runs", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -435,7 +496,8 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       run_id: run_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
         conn
@@ -482,7 +544,8 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       message_id = UUID.uuid4()
 
@@ -569,7 +632,8 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       message_id_1 = UUID.uuid4()
       message_content_1 = Faker.Lorem.paragraph()
@@ -728,7 +792,8 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       tool_1_id = UUID.uuid4()
       tool_2_id = UUID.uuid4()
@@ -810,7 +875,8 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
         conn
@@ -870,7 +936,8 @@ defmodule GptAgentTest do
       thread_id: thread_id,
       run_id: run_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
 
@@ -892,7 +959,8 @@ defmodule GptAgentTest do
       assistant_id: assistant_id,
       thread_id: thread_id
     } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       assert {:error, :run_not_in_progress} =
                GptAgent.submit_tool_output(pid, UUID.uuid4(), %{})
@@ -905,7 +973,8 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       Bypass.stub(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
         conn
@@ -969,7 +1038,8 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       tool_1_id = UUID.uuid4()
       tool_2_id = UUID.uuid4()
@@ -1062,7 +1132,8 @@ defmodule GptAgentTest do
            thread_id: thread_id,
            run_id: run_id
          } do
-      {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id)
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       tool_1_id = UUID.uuid4()
       tool_2_id = UUID.uuid4()
