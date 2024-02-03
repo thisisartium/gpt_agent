@@ -97,7 +97,9 @@ defmodule GptAgent do
 
   defp retrieve_current_run_status(%__MODULE__{} = state) do
     {:ok, %{body: %{"object" => "list", "data" => runs}}} =
-      OpenAiClient.get("/v1/threads/#{state.thread_id}/runs?limit=1&order=desc")
+      OpenAiClient.get("/v1/threads/#{state.thread_id}/runs?limit=1&order=desc",
+        receive_timeout: Application.get_env(:gpt_agent, :receive_timeout_ms)
+      )
 
     case runs do
       [%{"id" => run_id, "status" => status} | _rest]
@@ -119,7 +121,8 @@ defmodule GptAgent do
       OpenAiClient.post("/v1/threads/#{state.thread_id}/runs",
         json: %{
           "assistant_id" => state.assistant_id
-        }
+        },
+        receive_timeout: Application.get_env(:gpt_agent, :receive_timeout_ms)
       )
 
     Process.send_after(self(), {:check_run_status, id}, heartbeat_interval_ms())
@@ -160,7 +163,9 @@ defmodule GptAgent do
         end
 
     log("Reading messages with request to #{url}")
-    {:ok, %{body: %{"object" => "list", "data" => messages}}} = OpenAiClient.get(url)
+
+    {:ok, %{body: %{"object" => "list", "data" => messages}}} =
+      OpenAiClient.get(url, receive_timeout: Application.get_env(:gpt_agent, :receive_timeout_ms))
 
     state
     |> process_messages(messages)
@@ -240,7 +245,10 @@ defmodule GptAgent do
     log("Adding user message #{inspect(message)}")
 
     {:ok, %{body: %{"id" => id}}} =
-      OpenAiClient.post("/v1/threads/#{state.thread_id}/messages", json: message)
+      OpenAiClient.post("/v1/threads/#{state.thread_id}/messages",
+        json: message,
+        receive_timeout: Application.get_env(:gpt_agent, :receive_timeout_ms)
+      )
 
     state
     |> publish_event(
@@ -310,7 +318,8 @@ defmodule GptAgent do
 
     {:ok, %{body: %{"object" => "thread.run", "cancelled_at" => nil, "failed_at" => nil}}} =
       OpenAiClient.post("/v1/threads/#{state.thread_id}/runs/#{state.run_id}/submit_tool_outputs",
-        json: %{tool_outputs: state.tool_outputs}
+        json: %{tool_outputs: state.tool_outputs},
+        receive_timeout: Application.get_env(:gpt_agent, :receive_timeout_ms)
       )
 
     Process.send_after(self(), {:check_run_status, state.run_id}, heartbeat_interval_ms())
@@ -338,7 +347,9 @@ defmodule GptAgent do
     log("Checking run status for run ID #{inspect(id)}")
 
     {:ok, %{body: %{"status" => status} = response}} =
-      OpenAiClient.get("/v1/threads/#{state.thread_id}/runs/#{id}", [])
+      OpenAiClient.get("/v1/threads/#{state.thread_id}/runs/#{id}",
+        receive_timeout: Application.get_env(:gpt_agent, :receive_timeout_ms)
+      )
 
     handle_run_status(status, id, response, state)
   end
@@ -413,7 +424,10 @@ defmodule GptAgent do
       log("Creating thread")
 
       {:ok, %{body: %{"id" => thread_id, "object" => "thread"}}} =
-        OpenAiClient.post("/v1/threads", json: "")
+        OpenAiClient.post("/v1/threads",
+          json: "",
+          receive_timeout: Application.get_env(:gpt_agent, :receive_timeout_ms)
+        )
 
       log("Created thread with ID #{inspect(thread_id)}")
 
@@ -522,7 +536,9 @@ defmodule GptAgent do
           timeout_ms: timeout_ms || default_timeout_ms()
         )
 
-      case OpenAiClient.get("/v1/threads/#{thread_id}") do
+      case OpenAiClient.get("/v1/threads/#{thread_id}",
+             receive_timeout: Application.get_env(:gpt_agent, :receive_timeout_ms)
+           ) do
         {:ok, %{status: 404}} ->
           log("Thread ID #{inspect(thread_id)} not found")
           {:error, :invalid_thread_id}
