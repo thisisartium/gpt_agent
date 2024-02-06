@@ -296,7 +296,8 @@ defmodule GptAgentTest do
     test "loads existing thread run status when connecting to thread with a run history", %{
       thread_id: thread_id,
       assistant_id: assistant_id,
-      bypass: bypass
+      bypass: bypass,
+      run_id: run_id
     } do
       Bypass.expect_once(
         bypass,
@@ -314,7 +315,7 @@ defmodule GptAgentTest do
               object: "list",
               data: [
                 %{
-                  "id" => "run_abc123",
+                  "id" => run_id,
                   "object" => "thread.run",
                   "created_at" => 1_699_075_072,
                   "assistant_id" => assistant_id,
@@ -339,10 +340,85 @@ defmodule GptAgentTest do
         end
       )
 
+      Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "id" => run_id,
+            "object" => "thread.run",
+            "created_at" => 1_699_075_072,
+            "assistant_id" => assistant_id,
+            "thread_id" => thread_id,
+            "status" => "in_progress",
+            "started_at" => 1_699_075_072,
+            "expires_at" => nil,
+            "cancelled_at" => nil,
+            "failed_at" => nil,
+            "completed_at" => 1_699_075_073,
+            "last_error" => nil,
+            "model" => "gpt-4-1106-preview",
+            "instructions" => nil,
+            "tools" => [],
+            "file_ids" => [],
+            "metadata" => %{}
+          })
+        )
+      end)
+
       {:ok, pid} =
         GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
       assert {:error, :run_in_progress} = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+
+      GptAgent.shutdown(pid)
+
+      Bypass.expect_once(
+        bypass,
+        "GET",
+        "/v1/threads/#{thread_id}/runs",
+        fn conn ->
+          assert conn.params["order"] == "desc"
+          assert conn.params["limit"] == "1"
+
+          conn
+          |> Plug.Conn.put_resp_content_type("application/json")
+          |> Plug.Conn.resp(
+            200,
+            Jason.encode!(%{
+              object: "list",
+              data: [
+                %{
+                  "id" => run_id,
+                  "object" => "thread.run",
+                  "created_at" => 1_699_075_072,
+                  "assistant_id" => assistant_id,
+                  "thread_id" => thread_id,
+                  "status" => "completed",
+                  "started_at" => 1_699_075_072,
+                  "expires_at" => nil,
+                  "cancelled_at" => nil,
+                  "failed_at" => nil,
+                  "completed_at" => 1_699_075_073,
+                  "last_error" => nil,
+                  "model" => "gpt-3.5-turbo",
+                  "instructions" => nil,
+                  "tools" => [],
+                  "file_ids" => [],
+                  "metadata" => %{},
+                  "usage" => %{}
+                }
+              ]
+            })
+          )
+        end
+      )
+
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      assert :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
     end
 
     test "sets the last_message_id based on the passed value", %{

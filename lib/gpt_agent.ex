@@ -50,7 +50,6 @@ defmodule GptAgent do
   @callback submit_tool_output(pid(), Types.tool_name(), Types.tool_output()) ::
               Types.result(:invalid_tool_call_id)
 
-  defp ok(%__MODULE__{} = state), do: {:ok, state, state.timeout_ms}
   defp noreply(%__MODULE__{} = state), do: {:noreply, state, state.timeout_ms}
   defp noreply(%__MODULE__{} = state, next), do: {:noreply, state, next}
   defp reply(%__MODULE__{} = state, reply), do: {:reply, reply, state, state.timeout_ms}
@@ -78,7 +77,7 @@ defmodule GptAgent do
     state
     |> register()
     |> retrieve_current_run_status()
-    |> ok()
+    |> then(&{:ok, &1, {:continue, {:check_run_status, &1.run_id}}})
   end
 
   defp register(%__MODULE__{} = state) do
