@@ -1354,4 +1354,30 @@ defmodule GptAgentTest do
       :ok = GptAgent.submit_tool_output(pid, tool_1_id, %{another: "answer"})
     end
   end
+
+  describe "run_in_progress?/1" do
+    test "returns true if the agent has a run in progress", %{
+      assistant_id: assistant_id,
+      thread_id: thread_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      assert :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+
+      assert_receive {^pid, %RunStarted{}}, 5_000
+
+      assert GptAgent.run_in_progress?(pid)
+    end
+
+    test "returns false if the agent does not have a run in progress", %{
+      assistant_id: assistant_id,
+      thread_id: thread_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      refute GptAgent.run_in_progress?(pid)
+    end
+  end
 end
