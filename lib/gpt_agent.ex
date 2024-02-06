@@ -49,6 +49,7 @@ defmodule GptAgent do
   @callback add_user_message(pid(), Types.nonblank_string()) :: Types.result(:run_in_progress)
   @callback submit_tool_output(pid(), Types.tool_name(), Types.tool_output()) ::
               Types.result(:invalid_tool_call_id)
+  @callback run_in_progress?(pid()) :: boolean()
 
   defp noreply(%__MODULE__{} = state), do: {:noreply, state, state.timeout_ms}
   defp noreply(%__MODULE__{} = state, next), do: {:noreply, state, next}
@@ -212,6 +213,10 @@ defmodule GptAgent do
   end
 
   @impl true
+  def handle_call(:run_in_progress?, _caller, %__MODULE__{} = state) do
+    reply(state, state.running?)
+  end
+
   def handle_call(:shutdown, _caller, %__MODULE__{} = state) do
     log("Shutting down")
     Registry.unregister(GptAgent.Registry, state.thread_id)
@@ -580,6 +585,11 @@ defmodule GptAgent do
     @impl true
     def submit_tool_output(pid, tool_call_id, tool_output) do
       GenServer.call(pid, {:submit_tool_output, tool_call_id, tool_output})
+    end
+
+    @impl true
+    def run_in_progress?(pid) do
+      GenServer.call(pid, :run_in_progress?)
     end
   end
 end
