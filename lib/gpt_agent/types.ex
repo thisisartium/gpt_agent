@@ -18,13 +18,13 @@ defmodule GptAgent.Types do
   @type thread_id() :: nonblank_string()
   @type file_id() :: nonblank_string()
 
-  @type message_metadata() :: %{String.t() => Jason.Encoder.t()}
+  @type message_metadata() :: %{optional(String.t()) => Jason.Encoder.t()}
   precond message_metadata: &validate_message_metadata/1
 
   @type tool_output() :: nonblank_string()
   @type tool_name() :: nonblank_string()
   @type tool_call_id() :: nonblank_string()
-  @type tool_arguments() :: %{String.t() => Jason.Encoder.t()}
+  @type tool_arguments() :: %{optional(String.t()) => Jason.Encoder.t()}
 
   @type success() :: :ok
   @type success(t) :: {:ok, t}
