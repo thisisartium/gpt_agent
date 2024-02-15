@@ -458,7 +458,7 @@ defmodule GptAgent do
 
       case Registry.lookup(GptAgent.Registry, opts.thread_id) do
         [{pid, :gpt_agent}] ->
-          handle_existing_agent(pid, opts.last_message_id)
+          handle_existing_agent(pid, opts.last_message_id, opts.assistant_id)
 
         [] ->
           handle_no_existing_agent(
@@ -523,10 +523,11 @@ defmodule GptAgent do
 
     defp maybe_subscribe(result, _opts), do: result
 
-    defp handle_existing_agent(pid, last_message_id) do
+    defp handle_existing_agent(pid, last_message_id, assistant_id) do
       log("Found existing GPT Agent with PID #{inspect(pid)}")
       log("Updating last message ID to #{inspect(last_message_id)}")
       GenServer.cast(pid, {:set_last_message_id, last_message_id})
+      GenServer.cast(pid, {:set_assistant_id, assistant_id})
       {:ok, pid}
     end
 

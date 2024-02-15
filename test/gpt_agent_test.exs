@@ -281,16 +281,22 @@ defmodule GptAgentTest do
       refute_receive {^pid, %UserMessageAdded{}}
     end
 
-    test "does not update the assistant id on an agent if the agent is already running",
+    test "updates the assistant id on an agent if the agent is already running",
          %{thread_id: thread_id, assistant_id: assistant_id} do
       {:ok, pid1} =
         GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
 
+      new_assistant_id = UUID.uuid4()
+
       {:ok, pid2} =
-        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: UUID.uuid4())
+        GptAgent.connect(
+          thread_id: thread_id,
+          last_message_id: nil,
+          assistant_id: new_assistant_id
+        )
 
       assert pid1 == pid2
-      assert %GptAgent{assistant_id: ^assistant_id} = :sys.get_state(pid1)
+      assert %GptAgent{assistant_id: ^new_assistant_id} = :sys.get_state(pid1)
     end
 
     test "loads existing thread run status when connecting to thread with a run history", %{
