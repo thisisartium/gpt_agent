@@ -1380,4 +1380,21 @@ defmodule GptAgentTest do
       refute GptAgent.run_in_progress?(pid)
     end
   end
+
+  describe "set_assistant_id/2" do
+    test "updates the assistant_id in the agent's state", %{
+      assistant_id: assistant_id,
+      thread_id: thread_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      assert %GptAgent{assistant_id: ^assistant_id} = :sys.get_state(pid)
+
+      new_assistant_id = UUID.uuid4()
+      :ok = GptAgent.set_assistant_id(pid, new_assistant_id)
+
+      assert %GptAgent{assistant_id: ^new_assistant_id} = :sys.get_state(pid)
+    end
+  end
 end

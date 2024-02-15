@@ -50,6 +50,7 @@ defmodule GptAgent do
   @callback submit_tool_output(pid(), Types.tool_name(), Types.tool_output()) ::
               Types.result(:invalid_tool_call_id)
   @callback run_in_progress?(pid()) :: boolean()
+  @callback set_assistant_id(pid(), Types.assistant_id()) :: Types.success()
 
   defp noreply(%__MODULE__{} = state), do: {:noreply, state, state.timeout_ms}
   defp noreply(%__MODULE__{} = state, next), do: {:noreply, state, next}
@@ -590,6 +591,11 @@ defmodule GptAgent do
     @impl true
     def run_in_progress?(pid) do
       GenServer.call(pid, :run_in_progress?)
+    end
+
+    @impl true
+    def set_assistant_id(pid, assistant_id) do
+      GenServer.cast(pid, {:set_assistant_id, assistant_id})
     end
   end
 end
