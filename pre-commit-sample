@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+
+exec 1>&2
+
+if ! git diff --exit-code; then
+    echo "\n\n"
+    echo "\e[1;31m"
+    echo "**********************************************************************"
+    echo "* Error: There are unstaged changes!                                 *"
+    echo "*                                                                    *"
+    echo "* You must run your pre-commit tests against the same code that will *"
+    echo "* actually be commited, and the presence of unstaged changes will    *"
+    echo "* prevent that. We recommend using the integrate.sh script in this   *"
+    echo "* repository to take care of automatically stashing these changes    *"
+    echo "* for you.                                                           *"
+    echo "**********************************************************************"
+    echo "\e[0m"
+    echo "\n\n"
+    exit 1
+fi
+
+mix check && \
+mix test
