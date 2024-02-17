@@ -45,12 +45,14 @@ defmodule GptAgent do
   @callback create_thread() :: {:ok, Types.thread_id()}
   @callback start_link(t()) :: Types.result(pid(), term())
   @callback connect(connect_opts()) :: Types.result(pid(), :invalid_thread_id)
-  @callback shutdown(pid()) :: Types.success()
-  @callback add_user_message(pid(), Types.nonblank_string()) :: Types.result(:run_in_progress)
+  @callback shutdown(pid()) :: Types.result({:process_not_alive, pid()})
+  @callback add_user_message(pid(), Types.nonblank_string()) ::
+              Types.result(:run_in_progress | {:process_not_alive, pid()})
   @callback submit_tool_output(pid(), Types.tool_name(), Types.tool_output()) ::
-              Types.result(:invalid_tool_call_id)
-  @callback run_in_progress?(pid()) :: boolean()
-  @callback set_assistant_id(pid(), Types.assistant_id()) :: Types.success()
+              Types.result(:invalid_tool_call_id | {:process_not_alive, pid()})
+  @callback run_in_progress?(pid()) :: boolean() | Types.error({:process_not_alive, pid()})
+  @callback set_assistant_id(pid(), Types.assistant_id()) ::
+              Types.result({:process_not_alive, pid()})
 
   defp noreply(%__MODULE__{} = state), do: {:noreply, state, state.timeout_ms}
   defp noreply(%__MODULE__{} = state, next), do: {:noreply, state, next}
@@ -565,38 +567,57 @@ defmodule GptAgent do
 
     defp default_timeout_ms, do: Application.get_env(:gpt_agent, :timeout_ms, 120_000)
 
+    defp handle_dead_process(pid) do
+      log("GPT Agent with PID #{inspect(pid)} is not alive", :warning)
+      {:error, {:process_not_alive, pid}}
+    end
+
     @impl true
     def shutdown(pid) do
       log("Shutting down GPT Agent with PID #{inspect(pid)}")
 
       if Process.alive?(pid) do
         log("GPT Agent with PID #{inspect(pid)} is alive, terminating")
-        :ok = DynamicSupervisor.terminate_child(GptAgent.Supervisor, pid)
+        DynamicSupervisor.terminate_child(GptAgent.Supervisor, pid)
       else
-        log("GPT Agent with PID #{inspect(pid)} is not alive")
+        handle_dead_process(pid)
       end
-
-      :ok
     end
 
     @impl true
     def add_user_message(pid, message) do
-      GenServer.call(pid, {:add_user_message, %UserMessage{content: message}})
+      if Process.alive?(pid) do
+        GenServer.call(pid, {:add_user_message, %UserMessage{content: message}})
+      else
+        handle_dead_process(pid)
+      end
     end
 
     @impl true
     def submit_tool_output(pid, tool_call_id, tool_output) do
-      GenServer.call(pid, {:submit_tool_output, tool_call_id, tool_output})
+      if Process.alive?(pid) do
+        GenServer.call(pid, {:submit_tool_output, tool_call_id, tool_output})
+      else
+        handle_dead_process(pid)
+      end
     end
 
     @impl true
     def run_in_progress?(pid) do
-      GenServer.call(pid, :run_in_progress?)
+      if Process.alive?(pid) do
+        GenServer.call(pid, :run_in_progress?)
+      else
+        handle_dead_process(pid)
+      end
     end
 
     @impl true
     def set_assistant_id(pid, assistant_id) do
-      GenServer.cast(pid, {:set_assistant_id, assistant_id})
+      if Process.alive?(pid) do
+        GenServer.cast(pid, {:set_assistant_id, assistant_id})
+      else
+        handle_dead_process(pid)
+      end
     end
   end
 end

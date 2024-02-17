@@ -477,9 +477,36 @@ defmodule GptAgentTest do
       refute Process.alive?(pid)
       assert_eventually(Registry.lookup(GptAgent.Registry, thread_id) == [])
     end
+
+    @tag capture_log: true
+    test "returns error if the process was not alive to begin with", %{
+      thread_id: thread_id,
+      assistant_id: assistant_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      :ok = GptAgent.shutdown(pid)
+
+      assert {:error, {:process_not_alive, ^pid}} = GptAgent.shutdown(pid)
+    end
   end
 
   describe "add_user_message/2" do
+    @tag capture_log: true
+    test "returns error if the agent process is not alive", %{
+      thread_id: thread_id,
+      assistant_id: assistant_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      :ok = GptAgent.shutdown(pid)
+
+      assert {:error, {:process_not_alive, ^pid}} =
+               GptAgent.add_user_message(pid, Faker.Lorem.sentence())
+    end
+
     test "adds the user message to the agent's thread via the OpenAI API", %{
       bypass: bypass,
       thread_id: thread_id,
@@ -1037,6 +1064,20 @@ defmodule GptAgentTest do
   end
 
   describe "submit_tool_output/3" do
+    @tag capture_log: true
+    test "returns error if the agent process is not alive", %{
+      thread_id: thread_id,
+      assistant_id: assistant_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      :ok = GptAgent.shutdown(pid)
+
+      assert {:error, {:process_not_alive, ^pid}} =
+               GptAgent.submit_tool_output(pid, UUID.uuid4(), %{})
+    end
+
     test "returns {:error, :not_running} if there is no run in progress", %{
       assistant_id: assistant_id,
       thread_id: thread_id
@@ -1362,6 +1403,19 @@ defmodule GptAgentTest do
   end
 
   describe "run_in_progress?/1" do
+    @tag capture_log: true
+    test "returns error if the agent process is not alive", %{
+      thread_id: thread_id,
+      assistant_id: assistant_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      :ok = GptAgent.shutdown(pid)
+
+      assert {:error, {:process_not_alive, ^pid}} = GptAgent.run_in_progress?(pid)
+    end
+
     test "returns true if the agent has a run in progress", %{
       assistant_id: assistant_id,
       thread_id: thread_id
@@ -1388,6 +1442,19 @@ defmodule GptAgentTest do
   end
 
   describe "set_assistant_id/2" do
+    @tag capture_log: true
+    test "returns error if the agent process is not alive", %{
+      thread_id: thread_id,
+      assistant_id: assistant_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      :ok = GptAgent.shutdown(pid)
+
+      assert {:error, {:process_not_alive, ^pid}} = GptAgent.set_assistant_id(pid, UUID.uuid4())
+    end
+
     test "updates the assistant_id in the agent's state", %{
       assistant_id: assistant_id,
       thread_id: thread_id
