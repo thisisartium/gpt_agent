@@ -248,42 +248,19 @@ defmodule GptAgent do
     |> noreply({:continue, :run})
   end
 
-  @impl true
-  def handle_call(:run_in_progress?, _caller, %__MODULE__{} = state) do
-    reply(state, state.running?)
-  end
-
-  def handle_call(:shutdown, _caller, %__MODULE__{} = state) do
-    log("Shutting down")
-    Registry.unregister(GptAgent.Registry, state.thread_id)
-    stop(state)
-  end
-
-  def handle_call(:thread_id, _caller, %__MODULE__{} = state) do
-    log("Returning thread ID #{inspect(state.thread_id)}")
-    reply(state, {:ok, state.thread_id})
-  end
-
-  def handle_call(:assistant_id, _caller, %__MODULE__{} = state) do
-    log("Returning default assistant ID #{inspect(state.assistant_id)}")
-    reply(state, {:ok, state.assistant_id})
-  end
-
-  def handle_call(
+  def handle_cast(
         {:submit_tool_output, tool_call_id, tool_output},
-        _caller,
         %__MODULE__{running?: false} = state
       ) do
     log(
       "Attempting to submit tool output, but no run in progress, cannot submit tool output for call #{inspect(tool_call_id)}: #{inspect(tool_output)}"
     )
 
-    reply(state, {:error, :run_not_in_progress})
+    noreply(state)
   end
 
-  def handle_call(
+  def handle_cast(
         {:submit_tool_output, tool_call_id, tool_output},
-        _caller,
         %__MODULE__{} = state
       ) do
     log("Submitting tool output #{inspect(tool_output)}")
@@ -291,7 +268,7 @@ defmodule GptAgent do
     case Enum.find_index(state.tool_calls, fn %ToolCallRequested{id: id} -> id == tool_call_id end) do
       nil ->
         log("Tool call ID #{inspect(tool_call_id)} not found")
-        reply(state, {:error, :invalid_tool_call_id})
+        noreply(state)
 
       index ->
         log("Tool call ID #{inspect(tool_call_id)} found at index #{inspect(index)}")
@@ -313,7 +290,7 @@ defmodule GptAgent do
         |> Map.put(:tool_calls, tool_calls)
         |> Map.put(:tool_outputs, tool_outputs)
         |> possibly_send_outputs_to_openai()
-        |> reply(:ok)
+        |> noreply()
     end
   end
 
@@ -334,6 +311,27 @@ defmodule GptAgent do
   end
 
   defp possibly_send_outputs_to_openai(%__MODULE__{} = state), do: state
+
+  @impl true
+  def handle_call(:run_in_progress?, _caller, %__MODULE__{} = state) do
+    reply(state, state.running?)
+  end
+
+  def handle_call(:shutdown, _caller, %__MODULE__{} = state) do
+    log("Shutting down")
+    Registry.unregister(GptAgent.Registry, state.thread_id)
+    stop(state)
+  end
+
+  def handle_call(:thread_id, _caller, %__MODULE__{} = state) do
+    log("Returning thread ID #{inspect(state.thread_id)}")
+    reply(state, {:ok, state.thread_id})
+  end
+
+  def handle_call(:assistant_id, _caller, %__MODULE__{} = state) do
+    log("Returning default assistant ID #{inspect(state.assistant_id)}")
+    reply(state, {:ok, state.assistant_id})
+  end
 
   @impl true
   def handle_info(:timeout, %__MODULE__{} = state) do
@@ -595,7 +593,7 @@ defmodule GptAgent do
     @impl true
     def submit_tool_output(pid, tool_call_id, tool_output) do
       if Process.alive?(pid) do
-        GenServer.call(pid, {:submit_tool_output, tool_call_id, tool_output})
+        GenServer.cast(pid, {:submit_tool_output, tool_call_id, tool_output})
       else
         handle_dead_process(pid)
       end
