@@ -694,6 +694,20 @@ defmodule GptAgentTest do
                 "metadata" => %{}
               },
               %{
+                "id" => "msg_abc457",
+                "object" => "thread.message",
+                "created_at" => 1_699_016_383,
+                "thread_id" => thread_id,
+                "role" => "user",
+                "content" => [],
+                "file_ids" => [
+                  "file-abc123"
+                ],
+                "assistant_id" => nil,
+                "run_id" => nil,
+                "metadata" => %{}
+              },
+              %{
                 "id" => message_id,
                 "object" => "thread.message",
                 "created_at" => 1_699_016_384,
