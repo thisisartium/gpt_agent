@@ -175,30 +175,36 @@ defmodule GptAgent do
     |> noreply()
   end
 
+  defp process_message(message, %__MODULE__{} = state) do
+    case message["content"] do
+      [%{"text" => %{"value" => content}} | _rest] ->
+        if message["role"] == "assistant" do
+          publish_event(
+            state,
+            AssistantMessageAdded.new!(
+              message_id: message["id"],
+              thread_id: message["thread_id"],
+              run_id: message["run_id"],
+              assistant_id: message["assistant_id"],
+              content: content
+            )
+          )
+
+          log("Updating last message ID to #{message["id"]}")
+          %{state | last_message_id: message["id"]}
+        else
+          state
+        end
+
+      _ ->
+        log("Skipping message with no content: #{inspect(message)}")
+        state
+    end
+  end
+
   defp process_messages(%__MODULE__{} = state, messages) do
     log("Processing messages: #{inspect(messages)}")
-
-    Enum.reduce(messages, state, fn message, state ->
-      [%{"text" => %{"value" => content}} | _rest] = message["content"]
-
-      if message["role"] == "assistant" do
-        publish_event(
-          state,
-          AssistantMessageAdded.new!(
-            message_id: message["id"],
-            thread_id: message["thread_id"],
-            run_id: message["run_id"],
-            assistant_id: message["assistant_id"],
-            content: content
-          )
-        )
-
-        log("Updating last message ID to #{message["id"]}")
-        %{state | last_message_id: message["id"]}
-      else
-        state
-      end
-    end)
+    Enum.reduce(messages, state, &process_message/2)
   end
 
   defp heartbeat_interval_ms, do: Application.get_env(:gpt_agent, :heartbeat_interval_ms, 1000)
