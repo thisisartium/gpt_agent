@@ -56,7 +56,7 @@ defmodule GptAgent.MixProject do
       {:mix_audit, "~> 2.1", only: :dev, runtime: false},
       {:mix_test_interactive, "~> 1.2", only: :dev, runtime: false},
       {:mox, "~> 1.1", only: :test},
-      {:open_ai_client, "~> 2.0"},
+      {:open_ai_client, "~> 2.1"},
       {:phoenix_pubsub, "~> 2.1"},
       {:stream_data, "~> 0.6"},
       {:sobelow, "~> 0.12", only: [:dev, :test], runtime: false},
