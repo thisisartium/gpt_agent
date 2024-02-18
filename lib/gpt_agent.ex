@@ -57,7 +57,6 @@ defmodule GptAgent do
   defp noreply(%__MODULE__{} = state), do: {:noreply, state, state.timeout_ms}
   defp noreply(%__MODULE__{} = state, next), do: {:noreply, state, next}
   defp reply(%__MODULE__{} = state, reply), do: {:reply, reply, state, state.timeout_ms}
-  defp reply(%__MODULE__{} = state, reply, next), do: {:reply, reply, state, next}
   defp stop(%__MODULE__{} = state), do: {:stop, :normal, state}
 
   defp log(message, level \\ :debug) when is_binary(message),
@@ -215,46 +214,21 @@ defmodule GptAgent do
     {:noreply, %{state | assistant_id: assistant_id}}
   end
 
-  @impl true
   def handle_cast({:set_last_message_id, last_message_id}, %__MODULE__{} = state) do
     log("Setting last message ID to #{last_message_id}")
     {:noreply, %{state | last_message_id: last_message_id}}
   end
 
-  @impl true
-  def handle_call(:run_in_progress?, _caller, %__MODULE__{} = state) do
-    reply(state, state.running?)
-  end
-
-  def handle_call(:shutdown, _caller, %__MODULE__{} = state) do
-    log("Shutting down")
-    Registry.unregister(GptAgent.Registry, state.thread_id)
-    stop(state)
-  end
-
-  @impl true
-  def handle_call(:thread_id, _caller, %__MODULE__{} = state) do
-    log("Returning thread ID #{inspect(state.thread_id)}")
-    reply(state, {:ok, state.thread_id})
-  end
-
-  @impl true
-  def handle_call(:assistant_id, _caller, %__MODULE__{} = state) do
-    log("Returning default assistant ID #{inspect(state.assistant_id)}")
-    reply(state, {:ok, state.assistant_id})
-  end
-
-  @impl true
-  def handle_call({:add_user_message, message}, _caller, %__MODULE__{running?: true} = state) do
+  def handle_cast({:add_user_message, message}, %__MODULE__{running?: true} = state) do
     log(
       "Attempting to add user message, but run in progress, cannot add user message: #{inspect(message)}"
     )
 
-    reply(state, {:error, :run_in_progress})
+    GenServer.cast(self(), {:add_user_message, message})
+    noreply(state)
   end
 
-  @impl true
-  def handle_call({:add_user_message, %UserMessage{} = message}, _caller, %__MODULE__{} = state) do
+  def handle_cast({:add_user_message, %UserMessage{} = message}, %__MODULE__{} = state) do
     log("Adding user message #{inspect(message)}")
 
     {:ok, %{body: %{"id" => id}}} =
@@ -271,10 +245,30 @@ defmodule GptAgent do
         content: message
       )
     )
-    |> reply(:ok, {:continue, :run})
+    |> noreply({:continue, :run})
   end
 
   @impl true
+  def handle_call(:run_in_progress?, _caller, %__MODULE__{} = state) do
+    reply(state, state.running?)
+  end
+
+  def handle_call(:shutdown, _caller, %__MODULE__{} = state) do
+    log("Shutting down")
+    Registry.unregister(GptAgent.Registry, state.thread_id)
+    stop(state)
+  end
+
+  def handle_call(:thread_id, _caller, %__MODULE__{} = state) do
+    log("Returning thread ID #{inspect(state.thread_id)}")
+    reply(state, {:ok, state.thread_id})
+  end
+
+  def handle_call(:assistant_id, _caller, %__MODULE__{} = state) do
+    log("Returning default assistant ID #{inspect(state.assistant_id)}")
+    reply(state, {:ok, state.assistant_id})
+  end
+
   def handle_call(
         {:submit_tool_output, tool_call_id, tool_output},
         _caller,
@@ -287,7 +281,6 @@ defmodule GptAgent do
     reply(state, {:error, :run_not_in_progress})
   end
 
-  @impl true
   def handle_call(
         {:submit_tool_output, tool_call_id, tool_output},
         _caller,
@@ -593,7 +586,7 @@ defmodule GptAgent do
     @impl true
     def add_user_message(pid, message) do
       if Process.alive?(pid) do
-        GenServer.call(pid, {:add_user_message, %UserMessage{content: message}})
+        GenServer.cast(pid, {:add_user_message, %UserMessage{content: message}})
       else
         handle_dead_process(pid)
       end
