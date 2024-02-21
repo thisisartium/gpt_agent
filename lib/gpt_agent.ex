@@ -380,19 +380,40 @@ defmodule GptAgent do
 
     tool_calls
     |> Enum.reduce(state, fn tool_call, state ->
-      tool_call =
-        ToolCallRequested.new!(
-          id: tool_call["id"],
-          thread_id: state.thread_id,
-          run_id: id,
-          name: tool_call["function"]["name"],
-          arguments: Jason.decode!(tool_call["function"]["arguments"])
-        )
+      case Jason.decode(tool_call["function"]["arguments"]) do
+        {:ok, arguments} ->
+          tool_call =
+            ToolCallRequested.new!(
+              id: tool_call["id"],
+              thread_id: state.thread_id,
+              run_id: id,
+              name: tool_call["function"]["name"],
+              arguments: arguments
+            )
 
-      state
-      |> Map.put(:tool_calls, [tool_call | state.tool_calls])
-      |> publish_event(tool_call)
+          state
+          |> Map.put(:tool_calls, [tool_call | state.tool_calls])
+          |> publish_event(tool_call)
+
+        {:error, %Jason.DecodeError{}} ->
+          log("Failed to decode tool call arguments: #{inspect(tool_call)}", :warning)
+
+          tool_output =
+            ToolCallOutputRecorded.new!(
+              id: tool_call["id"],
+              thread_id: state.thread_id,
+              run_id: id,
+              name: tool_call["function"]["name"],
+              output:
+                Jason.encode!(%{error: "Failed to decode arguments, invalid JSON in tool call."})
+            )
+
+          state
+          |> publish_event(tool_output)
+          |> Map.put(:tool_outputs, [tool_output | state.tool_outputs])
+      end
     end)
+    |> possibly_send_outputs_to_openai()
     |> noreply()
   end
 

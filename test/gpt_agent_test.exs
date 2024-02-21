@@ -992,6 +992,95 @@ defmodule GptAgentTest do
                      5_000
     end
 
+    @tag capture_log: true
+    test "when the run makes tool calls with invalid JSON in the arguments, it attempts to recover",
+         %{
+           bypass: bypass,
+           assistant_id: assistant_id,
+           thread_id: thread_id,
+           run_id: run_id
+         } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      tool_1_id = UUID.uuid4()
+      tool_2_id = UUID.uuid4()
+
+      Bypass.expect(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "id" => run_id,
+            "object" => "thread.run",
+            "created_at" => 1_699_075_072,
+            "assistant_id" => assistant_id,
+            "thread_id" => thread_id,
+            "status" => "requires_action",
+            "required_action" => %{
+              "type" => "submit_tool_outputs",
+              "submit_tool_outputs" => %{
+                "tool_calls" => [
+                  %{
+                    "id" => tool_1_id,
+                    "type" => "function",
+                    "function" => %{
+                      "name" => "tool_1",
+                      "arguments" => ~s({"foo":"bar\n\nba"z","baz":1})
+                    }
+                  },
+                  %{
+                    "id" => tool_2_id,
+                    "type" => "function",
+                    "function" => %{
+                      "name" => "tool_2",
+                      "arguments" => ~s({"ham":"spam","wham":2})
+                    }
+                  }
+                ]
+              }
+            },
+            "started_at" => 1_699_075_072,
+            "expires_at" => nil,
+            "cancelled_at" => nil,
+            "failed_at" => nil,
+            "completed_at" => 1_699_075_073,
+            "last_error" => nil,
+            "model" => "gpt-4-1106-preview",
+            "instructions" => nil,
+            "tools" => [],
+            "file_ids" => [],
+            "metadata" => %{}
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, "Hello")
+
+      expected_error_output =
+        Jason.encode!(%{error: "Failed to decode arguments, invalid JSON in tool call."})
+
+      assert_receive {^pid,
+                      %ToolCallOutputRecorded{
+                        id: ^tool_1_id,
+                        thread_id: ^thread_id,
+                        run_id: ^run_id,
+                        name: "tool_1",
+                        output: ^expected_error_output
+                      }}
+
+      assert_receive {^pid,
+                      %ToolCallRequested{
+                        id: ^tool_2_id,
+                        thread_id: ^thread_id,
+                        run_id: ^run_id,
+                        name: "tool_2",
+                        arguments: %{"ham" => "spam", "wham" => 2}
+                      }},
+                     5_000
+    end
+
     test "allow adding additional messages if the run is not complete", %{
       assistant_id: assistant_id,
       thread_id: thread_id,
