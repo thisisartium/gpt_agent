@@ -19,6 +19,8 @@ defmodule GptAgentTest do
 
   alias GptAgent.Types.UserMessage
 
+  @retry_delay Application.compile_env(:gpt_agent, :rate_limit_retry_delay)
+
   setup _context do
     bypass = Bypass.open()
     Application.put_env(:open_ai_client, :base_url, "http://localhost:#{bypass.port}")
@@ -1117,7 +1119,97 @@ defmodule GptAgentTest do
     end
 
     @tag capture_log: true
-    test "when the run is fails, sends the RunFailed event to the callback handler", %{
+    test "when the run fails due to rate limiting, attempt to perform the run again after a delay, up to two more times",
+         %{
+           bypass: bypass,
+           assistant_id: assistant_id,
+           thread_id: thread_id,
+           run_id: run_id
+         } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      Bypass.expect(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+        failed_body = %{
+          "id" => run_id,
+          "object" => "thread.run",
+          "created_at" => 1_699_075_072,
+          "assistant_id" => assistant_id,
+          "thread_id" => thread_id,
+          "status" => "failed",
+          "started_at" => 1_699_075_072,
+          "expires_at" => nil,
+          "cancelled_at" => nil,
+          "completed_at" => nil,
+          "failed_at" => 1_699_075_073,
+          "last_error" => %{
+            "code" => "rate_limit_exceeded",
+            "message" =>
+              "Rate limit reached for whatever model blah blah blah, wouldn't it be swell if they used a different error code instead of making me match against a long-ass error message?"
+          },
+          "model" => "gpt-4-1106-preview",
+          "instructions" => nil,
+          "tools" => [],
+          "file_ids" => [],
+          "metadata" => %{}
+        }
+
+        response_body =
+          case Agent.get_and_update(counter, &{&1, &1 + 1}) do
+            0 -> failed_body
+            1 -> failed_body
+            2 -> failed_body
+            3 -> raise "should not have reached a third retry"
+          end
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(response_body))
+      end)
+
+      :ok = GptAgent.add_user_message(pid, "Hello")
+
+      assert_receive {^pid,
+                      %RunFailed{
+                        id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id,
+                        code: "rate_limit_exceeded-retrying",
+                        message:
+                          "Rate limit reached for whatever model blah blah blah, wouldn't it be swell if they used a different error code instead of making me match against a long-ass error message?"
+                      }}
+
+      refute_receive {^pid, %RunFailed{}}, @retry_delay - 10
+
+      assert_receive {^pid,
+                      %RunFailed{
+                        id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id,
+                        code: "rate_limit_exceeded-retrying",
+                        message:
+                          "Rate limit reached for whatever model blah blah blah, wouldn't it be swell if they used a different error code instead of making me match against a long-ass error message?"
+                      }},
+                     20
+
+      refute_receive {^pid, %RunFailed{}}, @retry_delay - 10
+
+      assert_receive {^pid,
+                      %RunFailed{
+                        id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id,
+                        code: "rate_limit_exceeded-final",
+                        message:
+                          "Rate limit reached for whatever model blah blah blah, wouldn't it be swell if they used a different error code instead of making me match against a long-ass error message?"
+                      }},
+                     20
+    end
+
+    @tag capture_log: true
+    test "when the run fails, sends the RunFailed event to the callback handler", %{
       bypass: bypass,
       assistant_id: assistant_id,
       thread_id: thread_id,
@@ -1158,6 +1250,17 @@ defmodule GptAgentTest do
       end)
 
       :ok = GptAgent.add_user_message(pid, "Hello")
+
+      assert_receive {^pid,
+                      %RunFailed{
+                        id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id,
+                        code: "rate_limit_exceeded-final",
+                        message:
+                          "You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors."
+                      }},
+                     5_000
 
       assert_receive {^pid,
                       %RunFailed{

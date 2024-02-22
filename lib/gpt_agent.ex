@@ -26,6 +26,9 @@ defmodule GptAgent do
   # two minutes
   @timeout_ms 120_000
 
+  @rate_limit_max_retries Application.compile_env(:gpt_agent, :rate_limit_max_retries, 0)
+  @rate_limit_retry_delay Application.compile_env(:gpt_agent, :rate_limit_retry_delay, 0)
+
   typedstruct do
     field :assistant_id, Types.assistant_id(), enforce: true
     field :thread_id, Types.thread_id(), enforce: true
@@ -35,6 +38,7 @@ defmodule GptAgent do
     field :tool_calls, [ToolCallRequested.t()], default: []
     field :tool_outputs, [ToolCallOutputRecorded.t()], default: []
     field :timeout_ms, non_neg_integer(), default: @timeout_ms
+    field :rate_limit_retry_attempt, non_neg_integer(), default: 0
   end
 
   @type connect_opt() ::
@@ -239,6 +243,7 @@ defmodule GptAgent do
       )
 
     state
+    |> Map.put(:rate_limit_retry_attempt, 0)
     |> publish_event(
       UserMessageAdded.new!(
         id: id,
@@ -347,7 +352,10 @@ defmodule GptAgent do
     end
   end
 
-  @impl true
+  def handle_info(:run, %__MODULE__{} = state) do
+    noreply(state, {:continue, :run})
+  end
+
   def handle_info({:check_run_status, id}, %__MODULE__{} = state) do
     log("Checking run status for run ID #{inspect(id)}")
 
@@ -427,6 +435,103 @@ defmodule GptAgent do
     Process.send_after(self(), {:check_run_status, id}, heartbeat_interval_ms())
     log("Will check run status in #{heartbeat_interval_ms()} ms")
     noreply(%{state | running?: true})
+  end
+
+  defp handle_run_status(
+         "failed",
+         id,
+         %{
+           "last_error" => %{
+             "code" => "rate_limit_exceeded",
+             "message" => "Rate limit reached" <> _
+           }
+         } = response,
+         %__MODULE__{rate_limit_retry_attempt: attempts} = state
+       )
+       when attempts < @rate_limit_max_retries do
+    log(
+      "Run ID #{inspect(id)} failed due to rate limiting. Will retry run in #{@rate_limit_retry_delay}ms."
+    )
+
+    Process.send_after(self(), :run, @rate_limit_retry_delay)
+
+    state
+    |> Map.update!(:rate_limit_retry_attempt, &(&1 + 1))
+    |> publish_event(
+      RunFailed.new!(
+        id: id,
+        thread_id: state.thread_id,
+        assistant_id: state.assistant_id,
+        code: "rate_limit_exceeded-retrying",
+        message: response |> Map.get("last_error", %{}) |> Map.get("message")
+      )
+    )
+    |> noreply()
+  end
+
+  defp handle_run_status(
+         "failed",
+         id,
+         %{
+           "last_error" => %{
+             "code" => "rate_limit_exceeded",
+             "message" => "Rate limit reached" <> _
+           }
+         } = response,
+         %__MODULE__{rate_limit_retry_attempt: attempts} = state
+       )
+       when attempts >= @rate_limit_max_retries do
+    log("Run ID #{inspect(id)} failed due to rate limiting. Retries expired")
+
+    state
+    |> Map.update!(:rate_limit_retry_attempt, &(&1 + 1))
+    |> publish_event(
+      RunFailed.new!(
+        id: id,
+        thread_id: state.thread_id,
+        assistant_id: state.assistant_id,
+        code: "rate_limit_exceeded-final",
+        message: response |> Map.get("last_error", %{}) |> Map.get("message")
+      )
+    )
+    |> noreply()
+  end
+
+  defp handle_run_status(
+         "failed",
+         id,
+         %{
+           "last_error" => %{
+             "code" => "rate_limit_exceeded",
+             "message" =>
+               "You exceeded your current quota, please check your plan and billing details." <> _
+           }
+         } = response,
+         %__MODULE__{} = state
+       ) do
+    log("Run ID #{inspect(id)} failed due to OpenAI account quota reached.")
+
+    state
+    |> publish_event(
+      RunFailed.new!(
+        id: id,
+        thread_id: state.thread_id,
+        assistant_id: state.assistant_id,
+        code: "rate_limit_exceeded-final",
+        message: response |> Map.get("last_error", %{}) |> Map.get("message")
+      )
+    )
+    # DEPRECATED: remove this second publish_event call on major version bump to 10.0.0
+    |> publish_event(
+      RunFailed.new!(
+        id: id,
+        thread_id: state.thread_id,
+        assistant_id: state.assistant_id,
+        code: "rate_limit_exceeded",
+        message: response |> Map.get("last_error", %{}) |> Map.get("message")
+      )
+    )
+    |> noreply()
   end
 
   defp handle_run_status(status, id, response, %__MODULE__{} = state) do
