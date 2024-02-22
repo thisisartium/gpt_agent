@@ -15,6 +15,9 @@ defmodule GptAgent do
 
   alias GptAgent.Events.{
     AssistantMessageAdded,
+    OrganizationQuotaExceeded,
+    RateLimited,
+    RateLimitRetriesExhuasted,
     RunCompleted,
     RunFailed,
     RunStarted,
@@ -445,7 +448,7 @@ defmodule GptAgent do
              "code" => "rate_limit_exceeded",
              "message" => "Rate limit reached" <> _
            }
-         } = response,
+         },
          %__MODULE__{rate_limit_retry_attempt: attempts} = state
        )
        when attempts < @rate_limit_max_retries do
@@ -458,12 +461,11 @@ defmodule GptAgent do
     state
     |> Map.update!(:rate_limit_retry_attempt, &(&1 + 1))
     |> publish_event(
-      RunFailed.new!(
-        id: id,
+      RateLimited.new!(
+        run_id: id,
         thread_id: state.thread_id,
         assistant_id: state.assistant_id,
-        code: "rate_limit_exceeded-retrying",
-        message: response |> Map.get("last_error", %{}) |> Map.get("message")
+        retries_remaining: @rate_limit_max_retries - attempts
       )
     )
     |> noreply()
@@ -477,7 +479,7 @@ defmodule GptAgent do
              "code" => "rate_limit_exceeded",
              "message" => "Rate limit reached" <> _
            }
-         } = response,
+         },
          %__MODULE__{rate_limit_retry_attempt: attempts} = state
        )
        when attempts >= @rate_limit_max_retries do
@@ -486,12 +488,18 @@ defmodule GptAgent do
     state
     |> Map.update!(:rate_limit_retry_attempt, &(&1 + 1))
     |> publish_event(
-      RunFailed.new!(
-        id: id,
+      RateLimited.new!(
+        run_id: id,
         thread_id: state.thread_id,
         assistant_id: state.assistant_id,
-        code: "rate_limit_exceeded-final",
-        message: response |> Map.get("last_error", %{}) |> Map.get("message")
+        retries_remaining: @rate_limit_max_retries - attempts
+      )
+    )
+    |> publish_event(
+      RateLimitRetriesExhuasted.new!(
+        run_id: id,
+        thread_id: state.thread_id,
+        assistant_id: state.assistant_id
       )
     )
     |> noreply()
@@ -513,12 +521,10 @@ defmodule GptAgent do
 
     state
     |> publish_event(
-      RunFailed.new!(
-        id: id,
+      OrganizationQuotaExceeded.new!(
+        run_id: id,
         thread_id: state.thread_id,
-        assistant_id: state.assistant_id,
-        code: "rate_limit_exceeded-quota",
-        message: response |> Map.get("last_error", %{}) |> Map.get("message")
+        assistant_id: state.assistant_id
       )
     )
     # DEPRECATED: remove this second publish_event call on major version bump to 10.0.0
