@@ -359,7 +359,7 @@ defmodule GptAgent do
     handle_run_status(status, id, response, state)
   end
 
-  defp handle_run_status("completed", id, _response, %__MODULE__{} = state) do
+  defp handle_run_status("completed", id, response, %__MODULE__{} = state) do
     log("Run ID #{inspect(id)} completed")
 
     state
@@ -368,7 +368,10 @@ defmodule GptAgent do
       RunCompleted.new!(
         id: id,
         thread_id: state.thread_id,
-        assistant_id: state.assistant_id
+        assistant_id: state.assistant_id,
+        prompt_tokens: response |> Map.get("usage", %{}) |> Map.get("prompt_tokens", 0),
+        completion_tokens: response |> Map.get("usage", %{}) |> Map.get("completion_tokens", 0),
+        total_tokens: response |> Map.get("usage", %{}) |> Map.get("total_tokens", 0)
       )
     )
     |> noreply({:continue, :read_messages})

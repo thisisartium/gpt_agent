@@ -632,7 +632,12 @@ defmodule GptAgentTest do
             "instructions" => nil,
             "tools" => [],
             "file_ids" => [],
-            "metadata" => %{}
+            "metadata" => %{},
+            "usage" => %{
+              "prompt_tokens" => 1,
+              "completion_tokens" => 2,
+              "total_tokens" => 3
+            }
           })
         )
       end)
@@ -643,7 +648,10 @@ defmodule GptAgentTest do
                       %RunCompleted{
                         id: ^run_id,
                         thread_id: ^thread_id,
-                        assistant_id: ^assistant_id
+                        assistant_id: ^assistant_id,
+                        prompt_tokens: 1,
+                        completion_tokens: 2,
+                        total_tokens: 3
                       }},
                      5_000
     end
