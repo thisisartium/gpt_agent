@@ -517,7 +517,7 @@ defmodule GptAgent do
         id: id,
         thread_id: state.thread_id,
         assistant_id: state.assistant_id,
-        code: "rate_limit_exceeded-final",
+        code: "rate_limit_exceeded-quota",
         message: response |> Map.get("last_error", %{}) |> Map.get("message")
       )
     )
