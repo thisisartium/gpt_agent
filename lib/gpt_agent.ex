@@ -16,6 +16,7 @@ defmodule GptAgent do
   alias GptAgent.Events.{
     AssistantMessageAdded,
     RunCompleted,
+    RunFailed,
     RunStarted,
     ToolCallOutputRecorded,
     ToolCallRequested,
@@ -429,7 +430,19 @@ defmodule GptAgent do
     log("Run ID #{inspect(id)} failed with status #{inspect(status)}", :warning)
     log("Response: #{inspect(response)}")
     log("State: #{inspect(state)}")
-    noreply(%{state | running?: false, run_id: nil})
+
+    state
+    |> Map.put(:running?, false)
+    |> publish_event(
+      RunFailed.new!(
+        id: id,
+        thread_id: state.thread_id,
+        assistant_id: state.assistant_id,
+        code: response |> Map.get("last_error", %{}) |> Map.get("code") || "unknown",
+        message: response |> Map.get("last_error", %{}) |> Map.get("message") || "unknown"
+      )
+    )
+    |> noreply()
   end
 
   defmodule Impl do

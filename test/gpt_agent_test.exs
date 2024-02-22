@@ -10,6 +10,7 @@ defmodule GptAgentTest do
   alias GptAgent.Events.{
     AssistantMessageAdded,
     RunCompleted,
+    RunFailed,
     RunStarted,
     ToolCallOutputRecorded,
     ToolCallRequested,
@@ -1105,6 +1106,61 @@ defmodule GptAgentTest do
 
       assert :ok = GptAgent.add_user_message(pid, Faker.Lorem.sentence())
       assert_receive {^pid, %UserMessageAdded{}}, 5_000
+    end
+
+    @tag capture_log: true
+    test "when the run is fails, sends the RunFailed event to the callback handler", %{
+      bypass: bypass,
+      assistant_id: assistant_id,
+      thread_id: thread_id,
+      run_id: run_id
+    } do
+      {:ok, pid} =
+        GptAgent.connect(thread_id: thread_id, last_message_id: nil, assistant_id: assistant_id)
+
+      Bypass.expect_once(bypass, "GET", "/v1/threads/#{thread_id}/runs/#{run_id}", fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{
+            "id" => run_id,
+            "object" => "thread.run",
+            "created_at" => 1_699_075_072,
+            "assistant_id" => assistant_id,
+            "thread_id" => thread_id,
+            "status" => "failed",
+            "started_at" => 1_699_075_072,
+            "expires_at" => nil,
+            "cancelled_at" => nil,
+            "completed_at" => nil,
+            "failed_at" => 1_699_075_073,
+            "last_error" => %{
+              "code" => "rate_limit_exceeded",
+              "message" =>
+                "You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors."
+            },
+            "model" => "gpt-4-1106-preview",
+            "instructions" => nil,
+            "tools" => [],
+            "file_ids" => [],
+            "metadata" => %{}
+          })
+        )
+      end)
+
+      :ok = GptAgent.add_user_message(pid, "Hello")
+
+      assert_receive {^pid,
+                      %RunFailed{
+                        id: ^run_id,
+                        thread_id: ^thread_id,
+                        assistant_id: ^assistant_id,
+                        code: "rate_limit_exceeded",
+                        message:
+                          "You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors."
+                      }},
+                     5_000
     end
   end
 

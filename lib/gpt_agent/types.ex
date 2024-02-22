@@ -18,6 +18,9 @@ defmodule GptAgent.Types do
   @type thread_id() :: nonblank_string()
   @type file_id() :: nonblank_string()
 
+  @type run_error_code() :: nonblank_string()
+  @type run_error_message() :: nonblank_string()
+
   @type message_metadata() :: %{optional(String.t()) => Jason.Encoder.t()}
   precond message_metadata: &validate_message_metadata/1
 
