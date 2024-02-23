@@ -1184,6 +1184,8 @@ defmodule GptAgentTest do
 
       refute_receive {^pid, %RunFailed{}}, @retry_delay - 10
 
+      assert :sys.get_state(pid).running?
+
       assert_receive {^pid,
                       %RateLimited{
                         run_id: ^run_id,
@@ -1194,6 +1196,7 @@ defmodule GptAgentTest do
                      20
 
       refute_receive {^pid, %RunFailed{}}, @retry_delay - 10
+      assert :sys.get_state(pid).running?
 
       assert_receive {^pid,
                       %RateLimited{
@@ -1210,6 +1213,8 @@ defmodule GptAgentTest do
                         thread_id: ^thread_id,
                         assistant_id: ^assistant_id
                       }}
+
+      refute :sys.get_state(pid).running?
     end
 
     @tag capture_log: true
@@ -1272,6 +1277,8 @@ defmodule GptAgentTest do
                         message:
                           "You exceeded your current quota, please check your plan and billing details. For more information on this error, read the docs: https://platform.openai.com/docs/guides/error-codes/api-errors."
                       }}
+
+      refute :sys.get_state(pid).running?
     end
 
     @tag capture_log: true
@@ -1328,6 +1335,8 @@ defmodule GptAgentTest do
                         code: ^code,
                         message: ^message
                       }}
+
+      refute :sys.get_state(pid).running?
     end
   end
 

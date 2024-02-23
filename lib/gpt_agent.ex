@@ -487,6 +487,7 @@ defmodule GptAgent do
 
     state
     |> Map.update!(:rate_limit_retry_attempt, &(&1 + 1))
+    |> Map.put(:running?, false)
     |> publish_event(
       RateLimited.new!(
         run_id: id,
@@ -520,6 +521,7 @@ defmodule GptAgent do
     log("Run ID #{inspect(id)} failed due to OpenAI account quota reached.")
 
     state
+    |> Map.put(:running?, false)
     |> publish_event(
       OrganizationQuotaExceeded.new!(
         run_id: id,
