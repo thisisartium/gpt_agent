@@ -32,6 +32,10 @@ config :open_ai_client, :base_url, System.get_env("OPENAI_BASE_URL") || "https:/
 config :open_ai_client, :openai_api_key, System.get_env("OPENAI_API_KEY") || raise("OPENAI_API_KEY is not set")
 config :open_ai_client, :openai_organization_id, System.get_env("OPENAI_ORGANIZATION_ID")
 config :gpt_agent, :heartbeat_interval_ms, if(config_env() == :test, do: 1, else: 1000)
+config :gpt_agent, :timeout_ms, get_env("GPT_AGENT_RECEIVE_TIMEOUT_MS", 120_000, :int)
+
+# if this is set to a number larger than the `:timeout_ms` above, the above value will be used instead
+config :gpt_agent, :receive_timeout_ms, get_env("GPT_AGENT_RECEIVE_TIMEOUT_MS", 30_000, :int)
 ```
 
 Make sure you have the `OPENAI_API_KEY` and (optionally) `OPENAI_ORGANIZATION_ID`
@@ -123,3 +127,9 @@ normally. If you would like to set a different timeout value, you can pass the
 # Shut down the process if it has not received any activity within 200ms
 {:ok, pid} = GptAgent.connect(thread_id: thread_id, assistant_id: assistant_id, timeout_ms: 200)
 ```
+
+There is also a receive timeout value for the HTTP requests to OpenAI. This is
+specified via the `:receive_timeout_ms` configuration value in your application
+config, however if the agent timeout is set to a smaller value, the agent
+timeout will also be used as the receive timeout. This is to prevent situations
+where the Agent will hang due to OpenAI taking too long to respond.
