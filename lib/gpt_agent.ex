@@ -22,6 +22,7 @@ defmodule GptAgent do
     RunFailed,
     RunStarted,
     ToolCallOutputRecorded,
+    ToolCallOutputSubmissionFailed,
     ToolCallRequested,
     UserMessageAdded
   }
@@ -29,8 +30,10 @@ defmodule GptAgent do
   # two minutes
   @timeout_ms 120_000
 
-  @rate_limit_max_retries Application.compile_env(:gpt_agent, :rate_limit_max_retries, 0)
-  @rate_limit_retry_delay Application.compile_env(:gpt_agent, :rate_limit_retry_delay, 0)
+  @rate_limit_max_retries Application.compile_env(:gpt_agent, :rate_limit_max_retries, 10)
+  @rate_limit_retry_delay Application.compile_env(:gpt_agent, :rate_limit_retry_delay, 30_000)
+
+  @tool_output_retry_delay Application.compile_env(:gpt_agent, :tool_output_retry_delay, 1000)
 
   typedstruct do
     field :assistant_id, Types.assistant_id(), enforce: true
@@ -308,23 +311,46 @@ defmodule GptAgent do
     end
   end
 
+  defp possibly_send_outputs_to_openai(state, failure_count \\ 0)
+
+  defp possibly_send_outputs_to_openai(state, failure_count) when failure_count >= 3 do
+    log("Failed to send tool outputs to OpenAI after 3 attempts, giving up", :warning)
+
+    state
+    |> publish_event(
+      ToolCallOutputSubmissionFailed.new!(
+        thread_id: state.thread_id,
+        run_id: state.run_id
+      )
+    )
+  end
+
   defp possibly_send_outputs_to_openai(
-         %__MODULE__{running?: true, tool_calls: [], tool_outputs: [_ | _]} = state
+         %__MODULE__{running?: true, tool_calls: [], tool_outputs: [_ | _]} = state,
+         failure_count
        ) do
     log("Sending tool outputs to OpenAI")
 
-    {:ok, %{body: %{"object" => "thread.run", "cancelled_at" => nil, "failed_at" => nil}}} =
-      OpenAiClient.post("/v1/threads/#{state.thread_id}/runs/#{state.run_id}/submit_tool_outputs",
-        json: %{tool_outputs: state.tool_outputs},
-        receive_timeout: receive_timeout_ms(state)
-      )
+    try do
+      {:ok, %{body: %{"object" => "thread.run", "cancelled_at" => nil, "failed_at" => nil}}} =
+        OpenAiClient.post(
+          "/v1/threads/#{state.thread_id}/runs/#{state.run_id}/submit_tool_outputs",
+          json: %{tool_outputs: state.tool_outputs},
+          receive_timeout: receive_timeout_ms(state)
+        )
+    rescue
+      exception ->
+        log("Failed to send tool outputs to OpenAI: #{inspect(exception)}", :warning)
+        :timer.sleep(@tool_output_retry_delay)
+        possibly_send_outputs_to_openai(state, failure_count + 1)
+    end
 
     Process.send_after(self(), {:check_run_status, state.run_id}, heartbeat_interval_ms())
 
     %{state | tool_outputs: []}
   end
 
-  defp possibly_send_outputs_to_openai(%__MODULE__{} = state), do: state
+  defp possibly_send_outputs_to_openai(%__MODULE__{} = state, _failure_count), do: state
 
   @impl true
   def handle_call(:run_in_progress?, _caller, %__MODULE__{} = state) do
