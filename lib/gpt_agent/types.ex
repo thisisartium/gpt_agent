@@ -35,6 +35,9 @@ defmodule GptAgent.Types do
   @type result(error_type) :: success() | error(error_type)
   @type result(success_type, error_type) :: success(success_type) | error(error_type)
 
+  @type assistant_metadata() :: %{optional(String.t()) => Jason.Encoder.t()}
+  @type assistant_response_format() :: "auto" | %{"type" => "json_object"}
+
   @doc """
   Validation for the `nonblank_string()` type
   """

@@ -13,6 +13,10 @@ defmodule GptAgent.Assistant do
     field :model, Types.nonblank_string(), enforce: true
     field :instructions, Types.nonblank_string(), enforce: true
     field :tools, [__MODULE__.Function.t()], default: []
+    field :metadata, Types.assistant_metadata(), default: %{}
+    field :temperature, Types.number(), default: 0.5
+    field :top_p, Types.number(), default: 1.0
+    field :response_format, Types.assistant_response_format(), default: "auto"
   end
 
   @doc """
