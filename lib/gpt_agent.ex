@@ -605,12 +605,12 @@ defmodule GptAgent do
     defp ok(data), do: {:ok, data}
 
     @impl true
-    def create_thread do
+    def create_thread(json \\ "") do
       log("Creating thread")
 
       {:ok, %{body: %{"id" => thread_id, "object" => "thread"}}} =
         OpenAiClient.post("/v1/threads",
-          json: "",
+          json: json,
           receive_timeout: Application.get_env(:gpt_agent, :receive_timeout_ms)
         )
 
