@@ -1,0 +1,32 @@
+layout {
+	default_tab_template split_direction="horizontal" {
+		children
+		pane size=1 borderless=true {
+			plugin location="compact-bar"
+		}
+	}
+
+	tab name="1 code" focus=true {
+		pane split_direction="vertical" {
+			pane name="editor" size="80%" focus=true command="nvim" borderless=true
+			pane name="tests" size="20%" command="mix" {
+				args "test.interactive" "--stale"
+			}
+		}
+	}
+
+	// tab name="2 servers" {
+	// 	pane split_direction="vertical" {
+	// 		pane name="docker" command="docker" { 
+	// 			args "compose" "up"
+	// 		}
+	// 		pane name="web" command="iex" start_suspended=true {
+	// 			args "-S" "mix" "phx.server"
+	// 		}
+	// 	}
+	// }
+
+	tab name="2 git" {
+		pane name="git" command="lazygit" borderless=true
+	} 
+}
